@@ -84,6 +84,16 @@ jobs:
         with:
           go-version-file: ${{ matrix.module }}/go.mod
           cache-dependency-path: ${{ matrix.module }}/go.sum
+      # docker-compose applies deployments/postgres/init.sql via
+      # docker-entrypoint-initdb.d on first boot; the `services:` postgres
+      # container above has no such hook, so the schema is loaded explicitly
+      # for the two modules whose tests need it (postgresql-client is
+      # preinstalled on the ubuntu-latest runner image).
+      - name: apply database schema
+        if: matrix.module == 'services/auth' || matrix.module == 'services/interaction'
+        env:
+          PGPASSWORD: ci
+        run: psql -h localhost -U ci -d movieapp -v ON_ERROR_STOP=1 -f deployments/postgres/init.sql
       - name: go test -race ./...
         working-directory: ${{ matrix.module }}
         run: go test -race -count=1 ./...

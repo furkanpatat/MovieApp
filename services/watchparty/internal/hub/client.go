@@ -20,6 +20,7 @@ type Client struct {
 	conn   *websocket.Conn
 
 	send    chan []byte   // closed only by the room, which owns it
+	errs    chan []byte   // local protocol-error replies; owned solely by this client
 	done    chan struct{} // closed when readPump ends
 	limiter *rate.Limiter
 }
@@ -28,6 +29,7 @@ func newClient(h *Hub, conn *websocket.Conn, userID string) *Client {
 	return &Client{
 		hub: h, conn: conn, userID: userID,
 		send:    make(chan []byte, h.opts.SendBuffer),
+		errs:    make(chan []byte, 4),
 		done:    make(chan struct{}),
 		limiter: rate.NewLimiter(rate.Limit(h.opts.MsgRate), h.opts.MsgBurst),
 	}
@@ -103,11 +105,15 @@ func (c *Client) readPump() {
 	}
 }
 
-// reply queues a message for this client only; if its queue is full it is
-// simply dropped (the room will evict a client that stays that far behind).
+// reply queues a protocol-error message for this client only, bypassing the
+// room entirely: it runs on the client's own readPump goroutine, and c.send
+// is exclusively owned (written and closed) by the room goroutine, so writing
+// there directly would race with a concurrent eviction closing it. c.errs is
+// touched only by this client's own two goroutines. If the queue is full the
+// reply is simply dropped.
 func (c *Client) reply(b []byte) {
 	select {
-	case c.send <- b:
+	case c.errs <- b:
 	default:
 	}
 }
@@ -127,6 +133,11 @@ func (c *Client) writePump() {
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				return
 			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case msg := <-c.errs:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(o.WriteWait))
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				return
 			}
