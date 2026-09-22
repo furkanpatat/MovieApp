@@ -1,0 +1,24 @@
+# Custom postgres_exporter queries (--extend.query-path).
+# The outbox backlog is the first signal that the relay or RabbitMQ is unhealthy:
+# writes still return 202, but the read model falls behind.
+movieapp_outbox:
+  query: |
+    SELECT
+      count(*) FILTER (WHERE status = 'pending')                                          AS pending,
+      count(*) FILTER (WHERE status = 'published')                                        AS published,
+      COALESCE(EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE status = 'pending')), 0) AS oldest_pending_age_seconds,
+      COALESCE(sum(attempts) FILTER (WHERE status = 'pending'), 0)                        AS failed_publish_attempts
+    FROM interaction.outbox_events
+  metrics:
+    - pending:
+        usage: "GAUGE"
+        description: "Outbox events waiting to be published to RabbitMQ"
+    - published:
+        usage: "GAUGE"
+        description: "Outbox events already published (kept until retention cleanup)"
+    - oldest_pending_age_seconds:
+        usage: "GAUGE"
+        description: "Age of the oldest pending outbox event, in seconds"
+    - failed_publish_attempts:
+        usage: "GAUGE"
+        description: "Failed publish attempts recorded on events that are still pending"

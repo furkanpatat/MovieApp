@@ -1,9 +1,13 @@
-.PHONY: up down logs ps observability db-init load-test load-test-smoke load-restore
+.PHONY: up down logs ps observability observability-down db-init load-test load-test-smoke load-restore
 up:            ; docker compose up -d
 down:          ; docker compose down
 logs:          ; docker compose logs -f
 ps:            ; docker compose ps
-observability: ; docker compose --profile observability up -d
+# Prometheus (http://localhost:9090) + Grafana (http://localhost:3000, admin / $GRAFANA_ADMIN_PASSWORD from .env)
+# with their exporters. Only these services are started, plus what they depend on.
+OBS_SERVICES = prometheus grafana redis-exporter postgres-exporter blackbox-exporter
+observability: ; docker compose --profile observability up -d $(OBS_SERVICES)
+observability-down: ; docker compose --profile observability stop $(OBS_SERVICES)
 
 # Apply deployments/postgres/init.sql to an already-initialised database.
 db-init:

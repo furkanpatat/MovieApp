@@ -56,9 +56,10 @@ func run() error {
 	catalog, _ := url.Parse(cfg.CatalogURL) // validated above
 	interaction, _ := url.Parse(cfg.InteractionURL)
 	authSvc, _ := url.Parse(cfg.AuthURL)
+	watchParty, _ := url.Parse(cfg.WatchPartyURL)
 
 	handler := server.New(server.Deps{
-		Catalog: catalog, Interaction: interaction, AuthService: authSvc,
+		Catalog: catalog, Interaction: interaction, AuthService: authSvc, WatchParty: watchParty,
 		// TTL is irrelevant here: the gateway only verifies.
 		Auth:    jwtauth.NewManager(cfg.JWTSecret, cfg.JWTIssuer, time.Hour),
 		Limiter: ratelimit.New(rdb, cfg.RateLimit.Requests, cfg.RateLimit.Window),

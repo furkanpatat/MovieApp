@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch/PR supersedes the run in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # This is a multi-module repo. Every module builds on its own (shared code is
+  # pulled in through `replace ../../pkg`), which is exactly how the Docker
+  # images build it. Ignoring go.work here means CI fails on a stale go.mod /
+  # go.sum instead of hiding it behind the workspace.
+  GOWORK: "off"
+
+jobs:
+  lint:
+    name: lint (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [pkg, services/auth, services/catalog, services/gateway, services/interaction, services/watchparty, tests/integration]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.2
+          working-directory: ${{ matrix.module }}
+
+  test:
+    name: test (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [pkg, services/auth, services/catalog, services/gateway, services/interaction, services/watchparty, tests/integration]
+    # Real dependencies for the integration tests (Postgres repositories, the
+    # RabbitMQ topology / reconnect / DLQ tests). Redis is faked in-process.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: movieapp
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ci -d movieapp"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        env:
+          # The default `guest` user only works from loopback, and the service
+          # container is reached over the docker bridge.
+          RABBITMQ_DEFAULT_USER: ci
+          RABBITMQ_DEFAULT_PASS: ci
+        ports: ["5672:5672", "15672:15672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    env:
+      # Tests skip themselves when these are unset; in CI they always run.
+      TEST_POSTGRES_DSN: postgres://ci:ci@localhost:5432/movieapp?sslmode=disable
+      RABBITMQ_URL: amqp://ci:ci@localhost:5672/
+      RABBITMQ_MGMT_URL: http://ci:ci@localhost:15672
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: go test -race ./...
+        working-directory: ${{ matrix.module }}
+        run: go test -race -count=1 ./...
+
+  # Proves every service image builds inside its container (nothing is pushed).
+  docker:
+    name: docker build (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth, catalog, gateway, interaction, watchparty]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: false
+          tags: movieapp-${{ matrix.service }}:ci
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  compose:
+    name: docker compose config
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: validate docker-compose.yml (default + observability profile)
+        run: |
+          cp .env.example .env
+          docker compose config -q
+          docker compose --profile observability config -q
+
+  # One required check for branch protection: green only if everything above is.
+  ci-success:
+    name: CI passed
+    if: always()
+    needs: [lint, test, docker, compose]
+    runs-on: ubuntu-latest
+    steps:
+      - name: fail if any job failed or was cancelled
+        run: |
+          echo '${{ toJSON(needs) }}'
+          [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]

@@ -1,9 +1,65 @@
+# Scrape config for the observability profile (`make observability`).
+#
+# The Go services do not expose /metrics yet, so what is monitored today is the
+# infrastructure they depend on (RabbitMQ queue depths / DLQs / connections /
+# rates, Redis, Postgres including the outbox backlog) plus the health of every
+# service via its /healthz endpoint. Instrumenting the services themselves
+# (request rates, latencies) is the natural next step.
 global:
   scrape_interval: 15s
+  evaluation_interval: 15s
+
 scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
+
+  # RabbitMQ aggregate metrics: connections, channels, consumers, message rates.
   - job_name: rabbitmq
     static_configs:
       - targets: ["rabbitmq:15692"]
+
+  # RabbitMQ PER-QUEUE metrics. The default endpoint only aggregates, so the
+  # depth of individual queues (interaction.ratings, ...ratings.dlq, ...) has to
+  # come from the detailed endpoint with explicit metric families.
+  - job_name: rabbitmq-queues
+    metrics_path: /metrics/detailed
+    params:
+      family: [queue_coarse_metrics, queue_consumer_count]
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  # Postgres, plus the custom movieapp_outbox_* series from postgres-queries.yaml.
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  # Health of every MovieApp service: the blackbox exporter calls each /healthz
+  # (probe_success, probe_duration_seconds). "catalog" stays DOWN until it has a
+  # TMDB_API_KEY: that is a real signal, not a bug in the dashboard.
+  - job_name: service-health
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://gateway:8080/healthz
+          - http://auth:8080/healthz
+          - http://interaction:8080/healthz
+          - http://catalog:8080/healthz
+          - http://watchparty:8080/healthz
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - source_labels: [__param_target]
+        regex: 'http://([^:]+):.*'
+        target_label: service
+        replacement: '$1'
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

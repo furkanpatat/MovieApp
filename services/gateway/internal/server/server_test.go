@@ -74,6 +74,7 @@ type env struct {
 	mr          *miniredis.Miniredis
 	auth        *jwtauth.Manager
 	authSvc     *upstream
+	wp          *wsUpstream
 }
 
 type opts struct {
@@ -97,6 +98,7 @@ func newEnv(t *testing.T, o opts) *env {
 		catalog:     newUpstream(t, "catalog", 200),
 		interaction: newUpstream(t, "interaction", 202),
 		authSvc:     newUpstream(t, "auth", 200),
+		wp:          newWSUpstream(t),
 		mr:          miniredis.RunT(t),
 		auth:        jwtauth.NewManager(secret, issuer, time.Hour),
 	}
@@ -104,11 +106,12 @@ func newEnv(t *testing.T, o opts) *env {
 	cu, _ := url.Parse(e.catalog.URL)
 	iu, _ := url.Parse(e.interaction.URL)
 	au, _ := url.Parse(e.authSvc.URL)
+	wu, _ := url.Parse(e.wp.URL)
 	if o.authLimit == 0 {
 		o.authLimit = 1000
 	}
 	e.gw = httptest.NewServer(server.New(server.Deps{
-		Catalog: cu, Interaction: iu, AuthService: au, Auth: e.auth,
+		Catalog: cu, Interaction: iu, AuthService: au, WatchParty: wu, Auth: e.auth,
 		Limiter:         ratelimit.New(rdb, o.limit, o.window),
 		RateLimit:       ratelimit.MiddlewareConfig{FailOpen: o.failOpen, TrustForwardedFor: o.trustXFF, Log: quiet},
 		AuthLimiter:     ratelimit.New(rdb, o.authLimit, o.window),
@@ -341,7 +344,7 @@ func TestUpstreamFailuresAreReportedCleanly(t *testing.T) {
 	e2 := newEnv(t, opts{})
 	su, _ := url.Parse(slow.URL)
 	rdb := redis.NewClient(&redis.Options{Addr: e2.mr.Addr()})
-	gw := httptest.NewServer(server.New(server.Deps{Catalog: su, Interaction: su, AuthService: su, Auth: e2.auth, Limiter: ratelimit.New(rdb, 100, time.Minute),
+	gw := httptest.NewServer(server.New(server.Deps{Catalog: su, Interaction: su, AuthService: su, WatchParty: su, Auth: e2.auth, Limiter: ratelimit.New(rdb, 100, time.Minute),
 		UpstreamTimeout: 100 * time.Millisecond, Log: quiet}))
 	defer gw.Close()
 	r, err := http.Get(gw.URL + "/api/v1/movies/1")

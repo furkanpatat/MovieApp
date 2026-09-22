@@ -1,0 +1,30 @@
+# golangci-lint v2. Run per module (this is a multi-module repo):
+#   for m in pkg services/* tests/integration; do (cd $m && golangci-lint run ./...); done
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose  # unclosed HTTP response bodies
+    - misspell
+    - unconvert  # needless type conversions
+    - nilerr     # returning nil after checking err != nil
+    - noctx      # http requests without a context
+  exclusions:
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+    rules:
+      # Tests legitimately ignore errors from Close/Write helpers, dial with
+      # the plain client, and build requests without a context.
+      - path: _test\.go
+        linters: [errcheck, bodyclose, noctx]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

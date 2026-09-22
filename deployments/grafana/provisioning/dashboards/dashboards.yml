@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: MovieApp
+    folder: MovieApp
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true      # edit in the UI; export the JSON back into this folder to keep changes
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

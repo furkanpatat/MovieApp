@@ -11,7 +11,7 @@ import (
 func valid() Config {
 	return Config{
 		Base:       sharedcfg.Base{Env: "development"},
-		CatalogURL: "http://catalog:8080", InteractionURL: "http://interaction:8080", AuthURL: "http://auth:8080",
+		CatalogURL: "http://catalog:8080", InteractionURL: "http://interaction:8080", AuthURL: "http://auth:8080", WatchPartyURL: "http://watchparty:8080",
 		JWTSecret:     strings.Repeat("s", 32),
 		RateLimit:     RateLimit{Requests: 100, Window: time.Minute},
 		AuthRateLimit: AuthRateLimit{Requests: 10, Window: time.Minute},
@@ -26,6 +26,7 @@ func TestValidate(t *testing.T) {
 		"short secret":         func(c *Config) { c.JWTSecret = "short" },
 		"zero auth limit":      func(c *Config) { c.AuthRateLimit.Requests = 0 },
 		"bad auth url":         func(c *Config) { c.AuthURL = "auth" },
+		"bad watchparty url":   func(c *Config) { c.WatchPartyURL = "ws://x" },
 		"zero limit":           func(c *Config) { c.RateLimit.Requests = 0 },
 		"zero window":          func(c *Config) { c.RateLimit.Window = 0 },
 		"bad catalog url":      func(c *Config) { c.CatalogURL = "catalog:8080" },

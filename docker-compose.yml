@@ -162,6 +162,29 @@ services:
       start_period: 5s
     networks: [movieapp]
 
+  watchparty:
+    build:
+      context: .
+      dockerfile: services/watchparty/Dockerfile
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: ":8080"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Browser origins allowed to open sockets (comma-separated); "*" = any.
+      WS_ALLOWED_ORIGINS: ${WS_ALLOWED_ORIGINS:-*}
+      WS_MAX_ROOM_CLIENTS: ${WS_MAX_ROOM_CLIENTS:-100}
+    ports:
+      # Localhost only: clients connect through the gateway, which authenticates
+      # them and injects X-User-Id (the trust boundary).
+      - "127.0.0.1:${WATCHPARTY_PORT:-8083}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks: [movieapp]
+
   gateway:
     build:
       context: .
@@ -175,6 +198,7 @@ services:
       INTERACTION_URL: http://interaction:8080
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (>= 32 chars) in .env}
       AUTH_URL: http://auth:8080
+      WATCHPARTY_URL: http://watchparty:8080
       JWT_ISSUER: ${JWT_ISSUER:-movieapp-auth}
       # Stricter budget for /api/v1/auth/* (login brute force, signup spam).
       AUTH_RATE_LIMIT_REQUESTS: ${AUTH_RATE_LIMIT_REQUESTS:-10}
@@ -197,22 +221,76 @@ services:
       start_period: 5s
     networks: [movieapp]
 
+  # ---- observability stack: `make observability` -------------------------
   prometheus:
     image: prom/prometheus:v2.53.0
     profiles: ["observability"]
+    restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./deployments/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    networks: [movieapp]
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.91.1
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [movieapp]
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      # Local convenience: reuses the app user. In production give the exporter
+      # its own read-only role (pg_monitor + SELECT on the outbox table).
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    command:
+      - --extend.query-path=/etc/postgres-exporter/queries.yaml
+    volumes:
+      - ./deployments/prometheus/postgres-queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [movieapp]
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.27.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./deployments/prometheus/blackbox.yml:/etc/blackbox/blackbox.yml:ro
     networks: [movieapp]
 
   grafana:
     image: grafana/grafana:11.1.0
     profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/movieapp-overview.json
     ports:
-      - "3001:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     volumes:
       - grafana_data:/var/lib/grafana
+      # datasource + dashboards are provisioned as code
+      - ./deployments/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on: [prometheus]
     networks: [movieapp]
 
@@ -221,6 +299,7 @@ volumes:
   redis_data:
   rabbitmq_data:
   grafana_data:
+  prometheus_data:
 
 networks:
   movieapp:

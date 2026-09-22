@@ -116,8 +116,10 @@ func Consume(ctx context.Context, conn *Connection, cfg ConsumerConfig, log *slo
 
 	for {
 		err := consumeSession(ctx, conn, cfg, log)
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done(): // shutting down: a clean stop, not a failure
 			return nil
+		default:
 		}
 		if errors.Is(err, ErrClosed) {
 			return err

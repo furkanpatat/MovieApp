@@ -17,7 +17,8 @@ type Config struct {
 	CatalogURL     string `env:"CATALOG_URL" envDefault:"http://localhost:8080"`
 	InteractionURL string `env:"INTERACTION_URL" envDefault:"http://localhost:8081"`
 
-	AuthURL string `env:"AUTH_URL" envDefault:"http://localhost:8082"`
+	AuthURL       string `env:"AUTH_URL" envDefault:"http://localhost:8082"`
+	WatchPartyURL string `env:"WATCHPARTY_URL" envDefault:"http://localhost:8083"`
 
 	// The gateway only VERIFIES tokens; the Auth service issues them. Both must
 	// be configured with the same JWT_SECRET and JWT_ISSUER.
@@ -60,7 +61,7 @@ func (c Config) Validate() error {
 	if c.AuthRateLimit.Requests < 1 || c.AuthRateLimit.Window <= 0 {
 		errs = append(errs, errors.New("AUTH_RATE_LIMIT_REQUESTS and AUTH_RATE_LIMIT_WINDOW must be positive"))
 	}
-	for name, raw := range map[string]string{"CATALOG_URL": c.CatalogURL, "INTERACTION_URL": c.InteractionURL, "AUTH_URL": c.AuthURL} {
+	for name, raw := range map[string]string{"CATALOG_URL": c.CatalogURL, "INTERACTION_URL": c.InteractionURL, "AUTH_URL": c.AuthURL, "WATCHPARTY_URL": c.WatchPartyURL} {
 		if u, err := url.Parse(raw); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			errs = append(errs, fmt.Errorf("%s must be an absolute http(s) URL", name))
 		}

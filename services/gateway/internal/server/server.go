@@ -28,6 +28,7 @@ const maxBody = 1 << 20
 type Deps struct {
 	Catalog, Interaction *url.URL
 	AuthService          *url.URL // Auth service: register / login
+	WatchParty           *url.URL // Watch-Party service: WebSocket rooms
 	Auth                 *jwtauth.Manager
 	Limiter              *ratelimit.Limiter
 	RateLimit            ratelimit.MiddlewareConfig
@@ -51,6 +52,8 @@ type gateway struct {
 //	GET  /api/v1/movies/...                 -> Catalog        (public)
 //	GET  /api/v1/movies/{id}/interactions  -> Interaction    (public)
 //	POST /api/v1/movies/{id}/rate|comment  -> Interaction    (JWT required)
+//	GET  /api/v1/watch-party/...           -> Watch-Party    (JWT required; WebSocket upgrade,
+//	                                          token in Authorization header or ?token=)
 //	     ...also under /api/v1/interaction/movies/{id}/...
 func New(d Deps) http.Handler {
 	if d.Log == nil {
@@ -73,6 +76,7 @@ func New(d Deps) http.Handler {
 	api := http.NewServeMux()
 	// Credential endpoints: public, proxied to the Auth service, and throttled
 	// much harder than the rest of the API.
+	watchParty := g.proxy(d.WatchParty)
 	authSvc := g.proxy(d.AuthService)
 	if d.AuthLimiter != nil {
 		authSvc = ratelimit.Middleware(d.AuthLimiter, d.AuthRateLimit)(authSvc)
@@ -82,6 +86,9 @@ func New(d Deps) http.Handler {
 	api.Handle("GET /api/v1/movies/{id}/interactions", interaction)
 	api.Handle("POST /api/v1/movies/{id}/rate", requireAuth(interaction))
 	api.Handle("POST /api/v1/movies/{id}/comment", requireAuth(interaction))
+	// WebSockets: browsers cannot set an Authorization header on the handshake,
+	// so this route (and only this route) also accepts ?token=<jwt> on an upgrade request.
+	api.Handle("GET /api/v1/watch-party/", g.requireAuthWS(watchParty))
 	// /api/v1/interaction/* is an alias for the interaction endpoints above.
 	api.Handle("GET /api/v1/interaction/movies/{id}/interactions", aliasOf(interaction))
 	api.Handle("POST /api/v1/interaction/movies/{id}/rate", requireAuth(aliasOf(interaction)))
@@ -146,19 +153,77 @@ type userKey struct{}
 
 func (g *gateway) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := r.Header.Get("Authorization")
-		scheme, token, ok := strings.Cut(h, " ")
-		if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" {
+		token, ok := bearerToken(r)
+		if !ok {
 			unauthorized(w, "missing or malformed bearer token")
 			return
 		}
-		userID, err := g.Auth.Verify(strings.TrimSpace(token))
+		userID, err := g.Auth.Verify(token)
 		if err != nil {
 			unauthorized(w, "invalid or expired token")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey{}, userID)))
 	})
+}
+
+// requireAuthWS is requireAuth for WebSocket handshakes. Browser WebSocket
+// clients cannot send custom headers, so when (and only when) the request is a
+// WebSocket upgrade and carries no Authorization header, the JWT may come from
+// the `token` query parameter. Either way the credential is verified here and
+// never forwarded: the upstream only ever sees the injected X-User-Id.
+func (g *gateway) requireAuthWS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token, ok := bearerToken(r)
+		if !ok && isWebSocketUpgrade(r) {
+			if t := strings.TrimSpace(r.URL.Query().Get("token")); t != "" {
+				token, ok = t, true
+			}
+		}
+		if !ok {
+			unauthorized(w, "missing or malformed bearer token")
+			return
+		}
+		userID, err := g.Auth.Verify(token)
+		if err != nil {
+			unauthorized(w, "invalid or expired token")
+			return
+		}
+
+		r = r.WithContext(context.WithValue(r.Context(), userKey{}, userID))
+		if r.URL.Query().Has("token") { // keep the JWT out of the upstream request
+			u := *r.URL // copy: never mutate the shared URL
+			q := u.Query()
+			q.Del("token")
+			u.RawQuery = q.Encode()
+			r.URL = &u
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// bearerToken extracts a token from "Authorization: Bearer <token>".
+func bearerToken(r *http.Request) (string, bool) {
+	scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	token = strings.TrimSpace(token)
+	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
+		return "", false
+	}
+	return token, true
+}
+
+func isWebSocketUpgrade(r *http.Request) bool {
+	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		return false
+	}
+	for _, v := range r.Header.Values("Connection") {
+		for _, part := range strings.Split(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func unauthorized(w http.ResponseWriter, msg string) {
