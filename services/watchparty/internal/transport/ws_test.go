@@ -368,7 +368,11 @@ func TestSameUserMayHaveSeveralConnections(t *testing.T) {
 // ------------------------------------------------------------------ robustness
 
 func TestClientDisconnectsNeverStallOrCrashTheRoom(t *testing.T) {
-	e := newEnv(t, fast(hub.Options{}))
+	// This test is about surviving abrupt victim disconnects, not backpressure
+	// eviction (that's TestSlowConsumerIsEvictedWithoutBlockingOthers), so the
+	// buffer must comfortably outrun 200 unpaced sends even when the survivor's
+	// reader goroutine gets briefly descheduled on a slow/shared CI runner.
+	e := newEnv(t, fast(hub.Options{SendBuffer: 1024}))
 	sender := e.join(t, "r", "sender")
 	survivor := e.join(t, "r", "survivor")
 	var victims []*client
