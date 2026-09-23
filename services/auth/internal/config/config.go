@@ -21,6 +21,10 @@ type Config struct {
 
 	// BcryptCost is the work factor; each +1 doubles the time to hash.
 	BcryptCost int `env:"BCRYPT_COST" envDefault:"12"`
+
+	// CookieSecure marks the session cookie Secure (HTTPS only). Only local
+	// plain-http development should turn it off; production refuses to.
+	CookieSecure bool `env:"AUTH_COOKIE_SECURE" envDefault:"true"`
 }
 
 const (
@@ -45,6 +49,9 @@ func (c Config) Validate() error {
 	}
 	if c.Env == "production" && c.BcryptCost < MinProdCost {
 		errs = append(errs, fmt.Errorf("BCRYPT_COST must be at least %d when APP_ENV=production", MinProdCost))
+	}
+	if c.Env == "production" && !c.CookieSecure {
+		errs = append(errs, errors.New("AUTH_COOKIE_SECURE must be true when APP_ENV=production"))
 	}
 	return errors.Join(errs...)
 }

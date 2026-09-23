@@ -10,10 +10,21 @@ import (
 // Config is loaded from environment variables.
 type Config struct {
 	sharedcfg.Base
-	TMDB    TMDB            `envPrefix:"TMDB_"`
-	Redis   sharedcfg.Redis `envPrefix:"REDIS_"`
-	Cache   Cache           `envPrefix:"CACHE_"`
-	Refresh Refresh         `envPrefix:"REFRESH_"`
+	TMDB    TMDB               `envPrefix:"TMDB_"`
+	Redis   sharedcfg.Redis    `envPrefix:"REDIS_"`
+	DB      sharedcfg.Postgres `envPrefix:"POSTGRES_"`
+	Cache   Cache              `envPrefix:"CACHE_"`
+	Refresh Refresh            `envPrefix:"REFRESH_"`
+	OMDb    OMDb               `envPrefix:"OMDB_"`
+}
+
+// OMDb supplies IMDb ratings. Without an API key (free at omdbapi.com) movies
+// show TMDB's score only; ratings already stored are still used.
+type OMDb struct {
+	APIKey    string        `env:"API_KEY"`
+	BaseURL   string        `env:"BASE_URL" envDefault:"https://www.omdbapi.com/"`
+	Timeout   time.Duration `env:"TIMEOUT" envDefault:"3s"`
+	RatingTTL time.Duration `env:"RATING_TTL" envDefault:"72h"` // re-fetch a rating after this; keeps us far under the free 1,000/day
 }
 
 // TMDB holds the external API client and circuit breaker settings.

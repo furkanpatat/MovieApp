@@ -98,8 +98,28 @@ func (c *Client) GetPopularMovies(ctx context.Context, page int) (domain.MoviePa
 
 func (c *Client) GetMovieDetails(ctx context.Context, id int) (domain.Movie, error) {
 	var w movieWire
-	if err := c.get(ctx, "/movie/"+strconv.Itoa(id), nil, &w); err != nil {
+	q := url.Values{"append_to_response": {"videos,credits"}}
+	if err := c.get(ctx, "/movie/"+strconv.Itoa(id), q, &w); err != nil {
 		return domain.Movie{}, err
+	}
+	return w.toDomain(), nil
+}
+
+func (c *Client) SearchMovies(ctx context.Context, query string, page int) (domain.MoviePage, error) {
+	var w popularResponse
+	q := url.Values{"query": {query}, "page": {strconv.Itoa(page)}, "include_adult": {"false"}}
+	if err := c.get(ctx, "/search/movie", q, &w); err != nil {
+		return domain.MoviePage{}, err
+	}
+	return w.toDomain(), nil
+}
+
+// GetPerson fetches /person/{id} and its /combined_credits in one request.
+func (c *Client) GetPerson(ctx context.Context, id int) (domain.Person, error) {
+	var w personWire
+	q := url.Values{"append_to_response": {"combined_credits"}}
+	if err := c.get(ctx, "/person/"+strconv.Itoa(id), q, &w); err != nil {
+		return domain.Person{}, err
 	}
 	return w.toDomain(), nil
 }

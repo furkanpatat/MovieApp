@@ -12,7 +12,7 @@ import (
 
 func TestRefreshWarmsPopularAndDetails(t *testing.T) {
 	p := &fakeProvider{}
-	svc, mr := newSvc(t, p)
+	svc, mr := newSvc(t, p, nil)
 	ctx := context.Background()
 
 	res, err := svc.RefreshPopular(ctx, service.RefreshOptions{Pages: 2, WarmDetails: true})
@@ -38,7 +38,7 @@ func TestRefreshWarmsPopularAndDetails(t *testing.T) {
 
 func TestRefreshOverwritesExistingEntry(t *testing.T) {
 	p := &fakeProvider{}
-	svc, mr := newSvc(t, p)
+	svc, mr := newSvc(t, p, nil)
 	ctx := context.Background()
 	_, _ = svc.GetPopularMovies(ctx, 1)
 	mr.FastForward(50 * time.Minute) // nearly expired
@@ -53,7 +53,7 @@ func TestRefreshOverwritesExistingEntry(t *testing.T) {
 
 func TestRefreshSkipsDetailsWhenDisabled(t *testing.T) {
 	p := &fakeProvider{}
-	svc, _ := newSvc(t, p)
+	svc, _ := newSvc(t, p, nil)
 	res, err := svc.RefreshPopular(context.Background(), service.RefreshOptions{Pages: 1})
 	if err != nil || res.Details != 0 || p.calls.Load() != 1 {
 		t.Fatalf("res=%+v calls=%d err=%v", res, p.calls.Load(), err)
@@ -63,7 +63,7 @@ func TestRefreshSkipsDetailsWhenDisabled(t *testing.T) {
 func TestRefreshStopsOnUpstreamOutage(t *testing.T) {
 	p := &fakeProvider{}
 	p.fail(domain.ErrUnavailable)
-	svc, _ := newSvc(t, p)
+	svc, _ := newSvc(t, p, nil)
 	_, err := svc.RefreshPopular(context.Background(), service.RefreshOptions{Pages: 5, WarmDetails: true})
 	if !errors.Is(err, domain.ErrUnavailable) || p.calls.Load() != 1 {
 		t.Fatalf("want abort after first call, err=%v calls=%d", err, p.calls.Load())
@@ -72,7 +72,7 @@ func TestRefreshStopsOnUpstreamOutage(t *testing.T) {
 
 func TestRefreshKeepsStaleDataDuringOutage(t *testing.T) {
 	p := &fakeProvider{}
-	svc, mr := newSvc(t, p)
+	svc, mr := newSvc(t, p, nil)
 	ctx := context.Background()
 	_, _ = svc.RefreshPopular(ctx, service.RefreshOptions{Pages: 1})
 	mr.FastForward(2 * time.Hour)
@@ -86,7 +86,7 @@ func TestRefreshKeepsStaleDataDuringOutage(t *testing.T) {
 }
 
 func TestRefreshValidationAndCancellation(t *testing.T) {
-	svc, _ := newSvc(t, &fakeProvider{})
+	svc, _ := newSvc(t, &fakeProvider{}, nil)
 	if _, err := svc.RefreshPopular(context.Background(), service.RefreshOptions{Pages: 0}); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("got %v", err)
 	}

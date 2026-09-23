@@ -16,7 +16,7 @@ import (
 )
 
 const popularJSON = `{"page":1,"total_pages":10,"total_results":200,"results":[
- {"id":1,"title":"Alpha","overview":"a","poster_path":"/a.jpg","release_date":"2024-01-01","vote_average":7.5,"vote_count":100}]}`
+ {"id":1,"title":"Alpha","overview":"a","poster_path":"/a.jpg","backdrop_path":"/a-bg.jpg","release_date":"2024-01-01","vote_average":7.5,"vote_count":100}]}`
 const detailsJSON = `{"id":1,"title":"Alpha","runtime":120,"tagline":"t","genres":[{"id":18,"name":"Drama"}]}`
 
 // fakeTMDB is a scriptable stand-in for the TMDB API.
@@ -71,7 +71,8 @@ func TestSuccess200(t *testing.T) {
 	c := newClient(f, nil)
 
 	page, err := c.GetPopularMovies(context.Background(), 1)
-	if err != nil || len(page.Results) != 1 || page.Results[0].Title != "Alpha" || page.TotalPages != 10 {
+	if err != nil || len(page.Results) != 1 || page.Results[0].Title != "Alpha" || page.TotalPages != 10 ||
+		page.Results[0].BackdropPath != "/a-bg.jpg" {
 		t.Fatalf("popular: %+v %v", page, err)
 	}
 	m, err := c.GetMovieDetails(context.Background(), 1)

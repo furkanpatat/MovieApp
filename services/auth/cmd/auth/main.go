@@ -69,7 +69,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           transport.NewHandler(svc, pool.Ping, log),
+		Handler:           transport.NewHandler(svc, pool.Ping, log, transport.CookieOptions{Secure: cfg.CookieSecure}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		IdleTimeout:       90 * time.Second,

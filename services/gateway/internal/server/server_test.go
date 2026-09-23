@@ -78,12 +78,13 @@ type env struct {
 }
 
 type opts struct {
-	limit     int
-	window    time.Duration
-	failOpen  bool
-	trustXFF  bool
-	authLimit int // per-window budget for /api/v1/auth/* (default 1000)
-	ready     func(context.Context) error
+	limit       int
+	window      time.Duration
+	failOpen    bool
+	trustXFF    bool
+	authLimit   int      // per-window budget for /api/v1/auth/* (default 1000)
+	corsOrigins []string // default: ["https://app.example.com"]
+	ready       func(context.Context) error
 }
 
 func newEnv(t *testing.T, o opts) *env {
@@ -110,15 +111,19 @@ func newEnv(t *testing.T, o opts) *env {
 	if o.authLimit == 0 {
 		o.authLimit = 1000
 	}
+	if o.corsOrigins == nil {
+		o.corsOrigins = []string{"https://app.example.com"}
+	}
 	e.gw = httptest.NewServer(server.New(server.Deps{
 		Catalog: cu, Interaction: iu, AuthService: au, WatchParty: wu, Auth: e.auth,
-		Limiter:         ratelimit.New(rdb, o.limit, o.window),
-		RateLimit:       ratelimit.MiddlewareConfig{FailOpen: o.failOpen, TrustForwardedFor: o.trustXFF, Log: quiet},
-		AuthLimiter:     ratelimit.New(rdb, o.authLimit, o.window),
-		AuthRateLimit:   ratelimit.MiddlewareConfig{KeyPrefix: "auth:ip:", FailOpen: false, TrustForwardedFor: o.trustXFF, Log: quiet},
-		UpstreamTimeout: 300 * time.Millisecond,
-		Ready:           o.ready,
-		Log:             quiet,
+		Limiter:            ratelimit.New(rdb, o.limit, o.window),
+		RateLimit:          ratelimit.MiddlewareConfig{FailOpen: o.failOpen, TrustForwardedFor: o.trustXFF, Log: quiet},
+		AuthLimiter:        ratelimit.New(rdb, o.authLimit, o.window),
+		AuthRateLimit:      ratelimit.MiddlewareConfig{KeyPrefix: "auth:ip:", FailOpen: false, TrustForwardedFor: o.trustXFF, Log: quiet},
+		UpstreamTimeout:    300 * time.Millisecond,
+		CORSAllowedOrigins: o.corsOrigins,
+		Ready:              o.ready,
+		Log:                quiet,
 	}))
 	t.Cleanup(e.gw.Close)
 	return e
@@ -597,5 +602,128 @@ func TestReadyz(t *testing.T) {
 	down = true
 	if resp := e.do(t, "GET", "/readyz", "", nil); resp.StatusCode != 503 {
 		t.Fatal(resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------- CORS
+
+func doOrigin(t *testing.T, e *env, method, path, origin string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest(method, e.gw.URL+path, nil)
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	if method == http.MethodOptions {
+		req.Header.Set("Access-Control-Request-Method", "GET")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
+}
+
+func TestCORSPreflightForAllowedOrigin(t *testing.T) {
+	e := newEnv(t, opts{corsOrigins: []string{"https://app.example.com"}})
+	resp := doOrigin(t, e, http.MethodOptions, "/api/v1/movies/1", "https://app.example.com")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("preflight -> %d, want 204", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Fatalf("Allow-Origin = %q", got)
+	}
+	if !strings.Contains(resp.Header.Get("Access-Control-Allow-Methods"), "GET") {
+		t.Fatalf("Allow-Methods = %q", resp.Header.Get("Access-Control-Allow-Methods"))
+	}
+	if !strings.Contains(resp.Header.Get("Access-Control-Allow-Headers"), "Authorization") {
+		t.Fatalf("Allow-Headers = %q", resp.Header.Get("Access-Control-Allow-Headers"))
+	}
+	if hits, _ := e.catalog.snapshot(); hits != 0 {
+		t.Fatal("a preflight must never reach the upstream")
+	}
+}
+
+func TestCORSHeaderOnRealResponses(t *testing.T) {
+	e := newEnv(t, opts{corsOrigins: []string{"https://app.example.com"}})
+	for _, c := range []struct {
+		method, path string
+	}{
+		{"GET", "/api/v1/movies/1"},
+		{"GET", "/healthz"},
+	} {
+		resp := doOrigin(t, e, c.method, c.path, "https://app.example.com")
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+			t.Errorf("%s %s: Allow-Origin = %q", c.method, c.path, got)
+		}
+		if resp.Header.Get("Vary") != "Origin" {
+			t.Errorf("%s %s: missing Vary: Origin", c.method, c.path)
+		}
+	}
+}
+
+func TestCORSRejectsDisallowedOrigin(t *testing.T) {
+	e := newEnv(t, opts{corsOrigins: []string{"https://app.example.com"}})
+
+	resp := doOrigin(t, e, http.MethodOptions, "/api/v1/movies/1", "https://evil.example.net")
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("disallowed origin got Allow-Origin = %q (a browser would trust this)", got)
+	}
+	// The gateway still resolves the preflight (204, no upstream hit) rather
+	// than erroring — the browser is what enforces the missing header.
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+
+	resp = doOrigin(t, e, "GET", "/api/v1/movies/1", "https://evil.example.net")
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("disallowed origin got Allow-Origin = %q on a real response", got)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("server-to-server-shaped request should still succeed at the HTTP level: %d", resp.StatusCode)
+	}
+}
+
+func TestCORSWildcardAllowsAnyOrigin(t *testing.T) {
+	e := newEnv(t, opts{corsOrigins: []string{"*"}})
+	resp := doOrigin(t, e, "GET", "/api/v1/movies/1", "https://anything.example.org")
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://anything.example.org" {
+		t.Fatalf("Allow-Origin = %q", got)
+	}
+}
+
+func TestCORSPreflightBypassesAuthAndRateLimit(t *testing.T) {
+	e := newEnv(t, opts{limit: 1, corsOrigins: []string{"https://app.example.com"}})
+	// Exhaust the per-IP budget with a real request first.
+	doOrigin(t, e, "GET", "/api/v1/movies/1", "https://app.example.com")
+
+	// A preflight for the protected rate/comment route must still succeed:
+	// it carries no Authorization header and must not consume the budget.
+	resp := doOrigin(t, e, http.MethodOptions, "/api/v1/movies/7/rate", "https://app.example.com")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("preflight on an exhausted budget -> %d, want 204", resp.StatusCode)
+	}
+	if resp.Header.Get("X-RateLimit-Remaining") != "" {
+		t.Fatal("preflight must not touch the rate limiter")
+	}
+
+	// The real (now 429) request behind it proves the budget was untouched by preflight.
+	resp2 := doOrigin(t, e, "GET", "/api/v1/movies/1", "https://app.example.com")
+	if resp2.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected the real request to be rate limited: %d", resp2.StatusCode)
+	}
+}
+
+func TestNoOriginRequestIsUnaffectedByCORS(t *testing.T) {
+	// Server-to-server / curl: no Origin header, so no CORS headers are
+	// added and none are needed — same-origin-style requests are never
+	// subject to CORS in the first place.
+	e := newEnv(t, opts{corsOrigins: []string{"https://app.example.com"}})
+	resp := doOrigin(t, e, "GET", "/api/v1/movies/1", "")
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("no-Origin request got Allow-Origin = %q", got)
 	}
 }

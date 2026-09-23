@@ -71,9 +71,10 @@ func run() error {
 			KeyPrefix: "auth:ip:", FailOpen: false, // credential endpoints fail closed
 			TrustForwardedFor: cfg.RateLimit.TrustForwardedFor, Log: log,
 		},
-		UpstreamTimeout: cfg.UpstreamTimeout,
-		Ready:           func(c context.Context) error { return rdb.Ping(c).Err() },
-		Log:             log,
+		UpstreamTimeout:    cfg.UpstreamTimeout,
+		CORSAllowedOrigins: cfg.CORSOrigins(),
+		Ready:              func(c context.Context) error { return rdb.Ping(c).Err() },
+		Log:                log,
 	})
 
 	srv := &http.Server{

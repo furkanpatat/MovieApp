@@ -1,0 +1,170 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  /* Font families come from next/font variables set on <html> in layout.tsx. */
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-heading: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * Cinematic dark theme. There is no light mode: :root and .dark carry the
+ * same values so the app is dark whether or not the class made it onto
+ * <html> yet (no flash), and layout.tsx sets class="dark" as the source of
+ * truth for any dark:-prefixed utilities.
+ *
+ * Palette: Tailwind's zinc scale for surfaces/text, plus a warm marquee-gold
+ * accent (amber) picked to read as "premium cinema" without borrowing a
+ * competitor's brand color (Netflix red, Letterboxd green).
+ */
+:root,
+.dark {
+  --background: #09090b; /* zinc-950 */
+  --foreground: #f4f4f5; /* zinc-100 */
+  --card: #18181b; /* zinc-900 */
+  --card-foreground: #f4f4f5;
+  --popover: #18181b;
+  --popover-foreground: #f4f4f5;
+  --primary: #fbbf24; /* amber-400 — the marquee accent */
+  --primary-foreground: #09090b;
+  --secondary: #27272a; /* zinc-800 */
+  --secondary-foreground: #f4f4f5;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa; /* zinc-400 */
+  --accent: #27272a;
+  --accent-foreground: #f4f4f5;
+  --destructive: #f87171; /* red-400, legible on dark */
+  --border: rgb(255 255 255 / 10%);
+  --input: rgb(255 255 255 / 12%);
+  --ring: #fbbf24;
+  --chart-1: #fbbf24;
+  --chart-2: #a1a1aa;
+  --chart-3: #71717a;
+  --chart-4: #52525b;
+  --chart-5: #3f3f46;
+  --radius: 0.625rem;
+  --sidebar: #0f0f11;
+  --sidebar-foreground: #f4f4f5;
+  --sidebar-primary: #fbbf24;
+  --sidebar-primary-foreground: #09090b;
+  --sidebar-accent: #27272a;
+  --sidebar-accent-foreground: #f4f4f5;
+  --sidebar-border: rgb(255 255 255 / 10%);
+  --sidebar-ring: #fbbf24;
+
+  /* Extra cinematic tokens (not part of the shadcn token set) */
+  --scrim-top: linear-gradient(to bottom, rgb(9 9 11 / 90%), transparent);
+  --scrim-bottom: linear-gradient(to top, #09090b, transparent);
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+
+  /* A dark scrollbar reads as intentional; the default light one breaks the
+     illusion on every scrollable panel. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--secondary);
+    border-radius: 9999px;
+    border: 2px solid var(--background);
+  }
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+}
+
+@layer utilities {
+  /* Vignette overlays for hero art / poster grids, so text stays legible
+     over an arbitrary backdrop image without a flat scrim killing the art. */
+  .scrim-top {
+    background-image: var(--scrim-top);
+  }
+  .scrim-bottom {
+    background-image: var(--scrim-bottom);
+  }
+}
+/* Horizontal rails scroll by swipe, wheel or their arrow buttons; the bar
+   itself would just be visual noise under every row. */
+@utility hide-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Slow-drifting brand gradient: the auth dialog's visual pane before (or
+   without) a backdrop image. */
+.auth-aurora {
+  background:
+    radial-gradient(60% 50% at 20% 20%, rgb(250 204 21 / 35%), transparent 70%),
+    radial-gradient(50% 60% at 80% 70%, rgb(220 38 38 / 30%), transparent 70%),
+    radial-gradient(70% 70% at 50% 100%, rgb(88 28 135 / 35%), transparent 70%),
+    #09090b;
+  background-size: 160% 160%;
+  animation: auth-aurora 18s ease-in-out infinite alternate;
+}
+@keyframes auth-aurora {
+  from { background-position: 0% 0%; }
+  to { background-position: 100% 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-aurora { animation: none; }
+}

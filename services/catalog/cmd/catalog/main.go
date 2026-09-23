@@ -17,11 +17,16 @@ import (
 	sharedcfg "github.com/furkanpatat/movieapp/pkg/config"
 	"github.com/furkanpatat/movieapp/pkg/logger"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/config"
+	"github.com/furkanpatat/movieapp/services/catalog/internal/domain"
+	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/omdb"
+	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/postgres"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/rediscache"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/tmdb"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/service"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/transport"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/worker"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sony/gobreaker/v2"
 )
 
@@ -54,12 +59,29 @@ func run() error {
 		return err
 	}
 
+	pool, err := pgxpool.New(ctx, cfg.DB.DSN())
+	if err != nil {
+		return fmt.Errorf("failed to connect to postgres: %w", err)
+	}
+	defer pool.Close()
+
+	pgRepo := postgres.New(pool)
+
 	tm := tmdb.New(tmdb.Config{
 		BaseURL: cfg.TMDB.BaseURL, APIKey: cfg.TMDB.APIKey, Timeout: cfg.TMDB.Timeout,
 		BreakerFailures: cfg.TMDB.BreakerFailures, BreakerOpenFor: cfg.TMDB.BreakerOpenFor,
 		Logger: log,
 	})
-	svc := service.NewCatalog(tm, rediscache.New(rdb, cfg.Cache.StaleTTL), cfg.Cache.TTL, log)
+	var ratings domain.RatingProvider // nil: stored IMDb ratings only
+	if cfg.OMDb.APIKey != "" {
+		ratings = omdb.New(omdb.Config{BaseURL: cfg.OMDb.BaseURL, APIKey: cfg.OMDb.APIKey, Timeout: cfg.OMDb.Timeout})
+	} else {
+		log.Warn("OMDB_API_KEY not set: IMDb ratings will not be fetched")
+	}
+	svc := service.NewCatalog(tm, rediscache.New(rdb, cfg.Cache.StaleTTL), pgRepo, cfg.Cache.TTL, log,
+		service.WithPeople(pgRepo),
+		service.WithIMDb(ratings, pgRepo, cfg.OMDb.RatingTTL),
+	)
 
 	var wg sync.WaitGroup
 	if cfg.Refresh.Enabled {
@@ -80,7 +102,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           transport.NewHandler(svc, func() bool { return tm.BreakerState() != gobreaker.StateOpen }, log),
+		Handler:           transport.NewHandler(svc, service.NewLibrary(pgRepo, svc), func() bool { return tm.BreakerState() != gobreaker.StateOpen }, log),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	errCh := make(chan error, 1)

@@ -2,6 +2,7 @@
 -- Docker only auto-runs this on a fresh data volume.
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE SCHEMA IF NOT EXISTS interaction;
+CREATE SCHEMA IF NOT EXISTS library;
 
 -- ---------------------------------------------------------------------------
 -- Auth service: user accounts. id (UUID) is the JWT `sub`, so it stays stable
@@ -80,3 +81,100 @@ CREATE INDEX IF NOT EXISTS outbox_pending_idx
 -- Retention cleanup of published rows.
 CREATE INDEX IF NOT EXISTS outbox_published_idx
     ON interaction.outbox_events (published_at) WHERE status = 'published';
+
+-- ---------------------------------------------------------------------------
+-- Catalog service: persistent (L2) cache of TMDB movies (migrations 0001-0002).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS movies (
+    id INT PRIMARY KEY,
+    title TEXT NOT NULL,
+    overview TEXT NOT NULL,
+    poster_path TEXT,
+    backdrop_path TEXT,
+    trailer_key TEXT,
+    release_date TEXT,
+    vote_average FLOAT,
+    vote_count INT,
+    cast_json JSONB,
+    tagline TEXT,
+    runtime INT,
+    genres JSONB,
+    fetched_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ---------------------------------------------------------------------------
+-- Catalog service: people and IMDb ratings (migrations 0004-0005).
+-- ---------------------------------------------------------------------------
+-- L2 cache of TMDB people (actors, directors...), the same pattern as movies:
+-- Redis in front, TMDB behind, rows re-fetched once older than a week.
+-- credits holds the person's movie credits (JSON array), popularity order.
+CREATE TABLE IF NOT EXISTS people (
+    id                   INT PRIMARY KEY,
+    name                 TEXT NOT NULL,
+    biography            TEXT NOT NULL DEFAULT '',
+    profile_path         TEXT,
+    birthday             TEXT,
+    deathday             TEXT,
+    place_of_birth       TEXT,
+    known_for_department TEXT,
+    credits              JSONB NOT NULL DEFAULT '[]',
+    fetched_at           TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- IMDb ratings (from OMDb), kept apart from TMDB's own vote_average.
+-- movies.imdb_id links a TMDB movie to IMDb (TMDB details include it);
+-- imdb_ratings is keyed by IMDb id and re-fetched only every few days, to stay
+-- far inside OMDb's daily request limit. rating is NULL when IMDb has none.
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS imdb_id TEXT;
+
+CREATE TABLE IF NOT EXISTS imdb_ratings (
+    imdb_id    TEXT PRIMARY KEY,
+    rating     REAL,
+    votes      INT,
+    fetched_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- More of what OMDb returns alongside the IMDb rating, stored with it (same
+-- refresh cycle) so movie pages serve it from Postgres, never from OMDb.
+-- Text as OMDb formats it ("PG-13", "85%", "$389,813,101"); NULL when N/A.
+ALTER TABLE imdb_ratings
+    ADD COLUMN IF NOT EXISTS rated           TEXT,
+    ADD COLUMN IF NOT EXISTS rotten_tomatoes TEXT,
+    ADD COLUMN IF NOT EXISTS metascore       INT,
+    ADD COLUMN IF NOT EXISTS awards          TEXT,
+    ADD COLUMN IF NOT EXISTS director        TEXT,
+    ADD COLUMN IF NOT EXISTS writer          TEXT,
+    ADD COLUMN IF NOT EXISTS box_office      TEXT,
+    ADD COLUMN IF NOT EXISTS country         TEXT,
+    ADD COLUMN IF NOT EXISTS language        TEXT;
+
+
+-- ---------------------------------------------------------------------------
+-- Catalog service: each user's library, the watchlist ("My List") and
+-- personal ratings (services/catalog/migrations 0003).
+-- movie_id references movies (the service stores the movie before inserting).
+-- Deleting an account deletes its library; deleting a movie still in someone's
+-- library is refused (movies is a cache, the library is user data).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS library.watchlists (
+    user_id    UUID        NOT NULL,
+    movie_id   INTEGER     NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, movie_id),
+    CONSTRAINT watchlists_user_fk  FOREIGN KEY (user_id)  REFERENCES auth.users (id) ON DELETE CASCADE,
+    CONSTRAINT watchlists_movie_fk FOREIGN KEY (movie_id) REFERENCES public.movies (id)
+);
+CREATE INDEX IF NOT EXISTS watchlists_movie_idx ON library.watchlists (movie_id);
+
+-- One rating per (user, movie); re-rating updates it in place.
+CREATE TABLE IF NOT EXISTS library.user_ratings (
+    user_id    UUID        NOT NULL,
+    movie_id   INTEGER     NOT NULL,
+    rating     INTEGER     NOT NULL CHECK (rating BETWEEN 1 AND 10),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, movie_id),
+    CONSTRAINT user_ratings_user_fk  FOREIGN KEY (user_id)  REFERENCES auth.users (id) ON DELETE CASCADE,
+    CONSTRAINT user_ratings_movie_fk FOREIGN KEY (movie_id) REFERENCES public.movies (id)
+);
+CREATE INDEX IF NOT EXISTS user_ratings_movie_idx ON library.user_ratings (movie_id);

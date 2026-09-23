@@ -1,0 +1,4 @@
+ALTER TABLE movies
+    DROP COLUMN IF EXISTS genres,
+    DROP COLUMN IF EXISTS runtime,
+    DROP COLUMN IF EXISTS tagline;
