@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	sharedcfg "github.com/furkanpatat/movieapp/pkg/config"
@@ -30,6 +31,12 @@ type Config struct {
 	AuthRateLimit AuthRateLimit `envPrefix:"AUTH_RATE_LIMIT_"`
 
 	UpstreamTimeout time.Duration `env:"UPSTREAM_TIMEOUT" envDefault:"10s"`
+
+	// CORSAllowedOrigins: comma-separated browser origins allowed to call this
+	// API (e.g. "https://app.example.com"). "*" allows any. Requests with no
+	// Origin header (server-to-server, curl) are never subject to CORS at
+	// all — this only affects what a browser will let its own JS read.
+	CORSAllowedOrigins string `env:"CORS_ALLOWED_ORIGINS" envDefault:"http://localhost:3000"`
 }
 
 type RateLimit struct {
@@ -67,4 +74,15 @@ func (c Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// CORSOrigins returns the parsed allow-list.
+func (c Config) CORSOrigins() []string {
+	var out []string
+	for _, o := range strings.Split(c.CORSAllowedOrigins, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }

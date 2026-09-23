@@ -71,6 +71,14 @@ func (s *Catalog) RefreshPopular(ctx context.Context, opt RefreshOptions) (Refre
 		case err != nil:
 			return res, fmt.Errorf("refresh movie %d: %w", id, err)
 		}
+		s.attachIMDb(ctx, &m)
+		// Keep L2 in step too: it links the movie to its IMDb id, which is
+		// what lets list pages show the IMDb rating.
+		if s.store != nil {
+			if err := s.store.UpsertMovie(ctx, m); err != nil {
+				s.log.Warn("L2 store upsert failed", "id", id, "error", err)
+			}
+		}
 		if err := s.cache.Set(ctx, movieKey(id), m, s.ttl); err != nil {
 			return res, fmt.Errorf("cache movie %d: %w", id, err)
 		}

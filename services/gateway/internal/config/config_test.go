@@ -40,3 +40,15 @@ func TestValidate(t *testing.T) {
 		}
 	}
 }
+
+func TestCORSOrigins(t *testing.T) {
+	c := valid()
+	c.CORSAllowedOrigins = " https://a.example.com ,https://b.example.com,"
+	if got := c.CORSOrigins(); len(got) != 2 || got[0] != "https://a.example.com" || got[1] != "https://b.example.com" {
+		t.Fatalf("got %v", got)
+	}
+	c.CORSAllowedOrigins = ""
+	if got := c.CORSOrigins(); got != nil {
+		t.Fatalf("empty config should parse to no origins, got %v", got)
+	}
+}

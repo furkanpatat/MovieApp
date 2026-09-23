@@ -51,7 +51,7 @@ func server(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return transport.NewHandler(svc, nil, quiet)
+	return transport.NewHandler(svc, nil, quiet, transport.CookieOptions{Secure: true})
 }
 
 func post(h http.Handler, path, body string) *httptest.ResponseRecorder {
@@ -82,10 +82,14 @@ func TestRegisterThenLoginReturnsAWorkingToken(t *testing.T) {
 		AccessToken string `json:"access_token"`
 		TokenType   string `json:"token_type"`
 		ExpiresIn   int    `json:"expires_in"`
+		User        struct{ ID, Username, Email string }
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if out.TokenType != "Bearer" || out.ExpiresIn < 3500 {
 		t.Fatalf("%+v", out)
+	}
+	if out.User.Username != "alice" || out.User.Email != "alice@example.com" {
+		t.Fatalf("login should return the profile the web app displays: %+v", out.User)
 	}
 	sub, err := jwtauth.NewManager(secret, "movieapp-auth", time.Hour).Verify(out.AccessToken)
 	if err != nil || sub != "11111111-2222-3333-4444-555555555555" {
@@ -145,5 +149,53 @@ func TestDuplicateRegistrationIs409(t *testing.T) {
 	post(h, "/api/v1/auth/register", registerBody)
 	if rec := post(h, "/api/v1/auth/register", `{"username":"ALICE","email":"new@example.com","password":"password1"}`); rec.Code != http.StatusConflict {
 		t.Fatalf("got %d", rec.Code)
+	}
+}
+
+func TestLoginSetsHardenedSessionCookie(t *testing.T) {
+	h := server(t)
+	post(h, "/api/v1/auth/register", registerBody)
+	rec := post(h, "/api/v1/auth/login", `{"login":"alice","password":"s3cret-password"}`)
+	if rec.Code != 200 {
+		t.Fatalf("login -> %d %s", rec.Code, rec.Body)
+	}
+
+	var session *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == jwtauth.CookieName {
+			session = c
+		}
+	}
+	if session == nil {
+		t.Fatalf("no %s cookie in %q", jwtauth.CookieName, rec.Header().Values("Set-Cookie"))
+	}
+	if !session.HttpOnly || !session.Secure || session.SameSite != http.SameSiteStrictMode || session.Path != jwtauth.CookiePath {
+		t.Fatalf("cookie not hardened: %+v", session)
+	}
+	if session.MaxAge < 3500 {
+		t.Fatalf("cookie should live as long as the token, MaxAge=%d", session.MaxAge)
+	}
+	if _, err := jwtauth.NewManager(secret, "movieapp-auth", time.Hour).Verify(session.Value); err != nil {
+		t.Fatalf("cookie value is not a valid token: %v", err)
+	}
+}
+
+func TestFailedLoginSetsNoCookie(t *testing.T) {
+	h := server(t)
+	post(h, "/api/v1/auth/register", registerBody)
+	rec := post(h, "/api/v1/auth/login", `{"login":"alice","password":"wrong-password"}`)
+	if rec.Code != http.StatusUnauthorized || len(rec.Result().Cookies()) != 0 {
+		t.Fatalf("-> %d, cookies %q", rec.Code, rec.Header().Values("Set-Cookie"))
+	}
+}
+
+func TestLogoutClearsSessionCookie(t *testing.T) {
+	rec := post(server(t), "/api/v1/auth/logout", "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("logout -> %d", rec.Code)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != jwtauth.CookieName || cookies[0].MaxAge >= 0 || cookies[0].Path != jwtauth.CookiePath {
+		t.Fatalf("expected a deleting %s cookie, got %q", jwtauth.CookieName, rec.Header().Values("Set-Cookie"))
 	}
 }

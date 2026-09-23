@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS imdb_ratings;
+ALTER TABLE movies DROP COLUMN IF EXISTS imdb_id;

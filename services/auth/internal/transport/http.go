@@ -10,25 +10,33 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/furkanpatat/movieapp/pkg/jwtauth"
 	"github.com/furkanpatat/movieapp/services/auth/internal/domain"
 	"github.com/furkanpatat/movieapp/services/auth/internal/service"
 )
 
 const maxBody = 8 << 10
 
-type Handler struct {
-	svc   *service.Auth
-	ready func(context.Context) error
-	log   *slog.Logger
+// CookieOptions configures the browser session cookie set at login.
+type CookieOptions struct {
+	Secure bool // HTTPS-only; off only for local plain-http development
 }
 
-func NewHandler(svc *service.Auth, ready func(context.Context) error, log *slog.Logger) http.Handler {
-	h := &Handler{svc: svc, ready: ready, log: log}
+type Handler struct {
+	svc    *service.Auth
+	ready  func(context.Context) error
+	log    *slog.Logger
+	cookie CookieOptions
+}
+
+func NewHandler(svc *service.Auth, ready func(context.Context) error, log *slog.Logger, cookie CookieOptions) http.Handler {
+	h := &Handler{svc: svc, ready: ready, log: log, cookie: cookie}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("GET /readyz", h.readyz)
 	mux.HandleFunc("POST /api/v1/auth/register", h.register)
 	mux.HandleFunc("POST /api/v1/auth/login", h.login)
+	mux.HandleFunc("POST /api/v1/auth/logout", h.logout)
 	return mux
 }
 
@@ -69,12 +77,43 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	// Browsers use the HttpOnly cookie (JS can't read it, so XSS can't steal
+	// it); the token stays in the body for API clients, tests and tooling.
+	h.setSessionCookie(w, res.Token, res.Expires)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"access_token": res.Token,
 		"token_type":   "Bearer",
 		"expires_in":   int(time.Until(res.Expires).Seconds()),
-		"user":         map[string]string{"id": res.User.ID, "username": res.User.Username},
+		"user":         map[string]string{"id": res.User.ID, "username": res.User.Username, "email": res.User.Email},
 	})
+}
+
+// logout clears the session cookie. JWTs are stateless, so a copy of the token
+// taken elsewhere stays valid until it expires; the short TTL bounds that.
+func (h *Handler) logout(w http.ResponseWriter, _ *http.Request) {
+	h.setSessionCookie(w, "", time.Time{})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// setSessionCookie sets the session cookie, or deletes it when token is "".
+func (h *Handler) setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
+	c := &http.Cookie{
+		Name:     jwtauth.CookieName,
+		Value:    token,
+		Path:     jwtauth.CookiePath,
+		HttpOnly: true,
+		Secure:   h.cookie.Secure,
+		// Strict: the web app and the API are same-site, so normal use is
+		// unaffected, and no cross-site request ever carries the session.
+		SameSite: http.SameSiteStrictMode,
+	}
+	if token == "" {
+		c.MaxAge = -1
+	} else {
+		c.Expires = expires
+		c.MaxAge = int(time.Until(expires).Seconds())
+	}
+	http.SetCookie(w, c)
 }
 
 func (h *Handler) fail(w http.ResponseWriter, err error) {

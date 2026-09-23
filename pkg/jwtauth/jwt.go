@@ -15,6 +15,14 @@ import (
 // DefaultIssuer is the `iss` claim unless configured otherwise.
 const DefaultIssuer = "movieapp-auth"
 
+// Browser sessions carry the token in an HttpOnly cookie instead of JS-readable
+// storage: the Auth service sets it at login, the Gateway reads it. Scoped to
+// the API so page requests never carry it.
+const (
+	CookieName = "movieapp_session"
+	CookiePath = "/api/"
+)
+
 var ErrInvalidToken = errors.New("invalid token")
 
 // validUserID keeps identities safe to forward as an HTTP header and to store.
