@@ -1,0 +1,103 @@
+# Production, on one server: layered over docker-compose.yml.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Caddy is the only thing listening on the internet (80/443, automatic HTTPS):
+#   https://$DOMAIN      -> web (Next.js)
+#   https://api.$DOMAIN  -> gateway (REST + Watch Party WebSocket)
+# Everything else is reachable only inside the Docker network. See DEPLOY.md.
+
+x-prod: &prod
+  APP_ENV: production
+
+services:
+  # --- data stores: no published ports at all ------------------------------
+  postgres:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  rabbitmq:
+    ports: !reset []
+
+  # --- services: reached through the gateway only ---------------------------
+  catalog:
+    ports: !reset []
+    environment:
+      <<: *prod
+  interaction:
+    ports: !reset []
+    environment:
+      <<: *prod
+  auth:
+    ports: !reset []
+    environment:
+      <<: *prod
+      # APP_ENV=production refuses to start without it.
+      AUTH_COOKIE_SECURE: "true"
+  watchparty:
+    ports: !reset []
+    environment:
+      <<: *prod
+      WS_ALLOWED_ORIGINS: https://${DOMAIN:?set DOMAIN in .env}
+  gateway:
+    ports: !reset []
+    environment:
+      <<: *prod
+      CORS_ALLOWED_ORIGINS: https://${DOMAIN:?set DOMAIN in .env}
+      # Caddy appends the real client address to X-Forwarded-For; without
+      # this every visitor would share Caddy's IP (and one rate limit).
+      RATE_LIMIT_TRUST_FORWARDED_FOR: "true"
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: https://api.${DOMAIN:?set DOMAIN in .env}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks: [movieapp]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env (certificate expiry notices)}
+    volumes:
+      - ./deployments/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web, gateway]
+    networks: [movieapp]
+
+  # Nightly pg_dump into ./backups (kept BACKUP_KEEP_DAYS days). Copy them
+  # off the server too: a backup on the same disk dies with the disk.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./deployments/backup/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [movieapp]
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,26 @@
+# Automatic HTTPS (Let's Encrypt) for the site and the API.
+{
+	email {$ACME_EMAIL}
+}
+
+(common) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+{$DOMAIN} {
+	import common
+	header X-Frame-Options "DENY"
+	reverse_proxy web:3000
+}
+
+# REST and the Watch Party WebSocket (Caddy upgrades connections itself).
+api.{$DOMAIN} {
+	import common
+	reverse_proxy gateway:8080
+}

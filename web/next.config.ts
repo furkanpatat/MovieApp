@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // A self-contained server (.next/standalone) for the Docker image.
+  output: "standalone",
   // Dev only: lets phones and other computers on the local network load the
   // dev server's scripts (opened as http://192.168.x.x:3000). The gateway
   // must allow that origin too: CORS_ALLOWED_ORIGINS in the root .env.

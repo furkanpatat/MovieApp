@@ -5,3 +5,6 @@ bin/
 node_modules/
 __pycache__/
 *.pyc
+
+# Production database dumps (docker-compose.prod.yml backup service)
+/backups/
