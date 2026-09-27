@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Bookmark, CloudOff, Compass, Film, type LucideIcon } from "lucide-react";
 
+import { plural, useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { MovieCard } from "@/components/movies/movie-card";
 import { MovieCardSkeleton } from "@/components/movies/movie-card-skeleton";
@@ -17,15 +18,16 @@ export default function MyListPage() {
   const userId = useAuthStore((s) => s.userId);
   const { list, status } = useUserLibrary();
   const openAuth = useAuthPrompt((s) => s.openAuth);
+  const { t } = useT();
 
   return (
     <div className="mx-auto w-full max-w-screen-2xl flex-1 px-4 py-10 sm:px-8">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">My List</h1>
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t("myList.title")}</h1>
           {userId && list.length > 0 && (
             <p className="mt-1 text-sm text-muted-foreground">
-              {list.length} {list.length === 1 ? "title" : "titles"} · most recently added first
+              {t(plural(list.length, "myList.countOne", "myList.countOther"), { n: list.length })} · {t("myList.recentFirst")}
             </p>
           )}
         </div>
@@ -40,26 +42,26 @@ export default function MyListPage() {
       ) : !userId ? (
         <EmptyState
           icon={Bookmark}
-          title="Sign in to build your list"
-          body="Save movies and shows you want to watch, and find them all here."
-          action={<Button onClick={() => openAuth()}>Sign in</Button>}
+          title={t("myList.signInTitle")}
+          body={t("myList.signInBody")}
+          action={<Button onClick={() => openAuth()}>{t("common.signIn")}</Button>}
         />
       ) : status === "error" ? (
         <EmptyState
           icon={CloudOff}
-          title="Couldn’t load your list"
-          body="Your list is safe; we just couldn’t reach it right now."
-          action={<Button onClick={() => void useLibraryStore.getState().load(userId)}>Try again</Button>}
+          title={t("myList.loadFailedTitle")}
+          body={t("myList.loadFailedBody")}
+          action={<Button onClick={() => void useLibraryStore.getState().load(userId)}>{t("common.tryAgain")}</Button>}
         />
       ) : list.length === 0 ? (
         <EmptyState
           icon={Film}
-          title="Your list is empty"
-          body="Discover movies to add them here. Tap the bookmark on any title to save it for later."
+          title={t("myList.emptyTitle")}
+          body={t("myList.emptyBody")}
           action={
             <div className="flex flex-wrap justify-center gap-3">
               <Button asChild>
-                <Link href="/">Browse movies</Link>
+                <Link href="/">{t("myList.browse")}</Link>
               </Button>
               <Button asChild variant="secondary">
                 <Link href="/discover">

@@ -4,8 +4,10 @@ import { useEffect, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bookmark, KeyRound, LogOut, Mail, Star, UserRound } from "lucide-react";
+import { Bookmark, KeyRound, Languages, LogOut, Mail, Star, UserRound } from "lucide-react";
 
+import { LanguageToggle } from "@/components/layout/language-toggle";
+import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLogout } from "@/hooks/use-auth";
@@ -30,6 +32,7 @@ export default function ProfilePage() {
   const email = useAuthStore((s) => s.email);
   const { list, ratings, status } = useUserLibrary();
   const logout = useLogout();
+  const { t, locale } = useT();
 
   useEffect(() => {
     if (hasHydrated && !username) router.replace("/");
@@ -59,18 +62,18 @@ export default function ProfilePage() {
 
         {/* Stats */}
         <section className="grid grid-cols-2 gap-4">
-          <Stat href="/my-list" icon={<Bookmark className="size-5 text-primary" />} value={list.length} label="In My List" />
-          <Stat icon={<Star className="size-5 text-primary" />} value={Object.keys(ratings).length} label="Ratings" />
+          <Stat href="/my-list" icon={<Bookmark className="size-5 text-primary" />} value={list.length} label={t("profile.inMyList")} />
+          <Stat icon={<Star className="size-5 text-primary" />} value={Object.keys(ratings).length} label={t("profile.ratings")} />
         </section>
 
         {/* Recent ratings */}
         <section className={`${GLASS} p-6`}>
-          <h2 className="text-lg font-bold tracking-tight">Recent ratings</h2>
+          <h2 className="text-lg font-bold tracking-tight">{t("profile.recentRatings")}</h2>
           {recent.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">
-              You haven&apos;t rated anything yet. Rate a movie from its page or like it in the{" "}
+              {t("profile.noRatingsBefore")}{" "}
               <Link href="/discover" className="text-primary underline-offset-4 hover:underline">
-                Discover feed
+                {t("profile.discoverFeed")}
               </Link>
               .
             </p>
@@ -102,24 +105,30 @@ export default function ProfilePage() {
 
         {/* Account settings */}
         <section className={`${GLASS} p-6`}>
-          <h2 className="text-lg font-bold tracking-tight">Account settings</h2>
+          <h2 className="text-lg font-bold tracking-tight">{t("profile.accountSettings")}</h2>
           <div className="mt-4 divide-y divide-white/5">
-            <SettingRow icon={<UserRound className="size-4" />} label="Username" value={username} />
-            <SettingRow icon={<Mail className="size-4" />} label="Email" value={email ?? "Sign in again to show your email"} />
+            <SettingRow icon={<UserRound className="size-4" />} label={t("profile.username")} value={username} />
+            <SettingRow icon={<Mail className="size-4" />} label={t("profile.email")} value={email ?? t("profile.emailMissing")} />
+            <SettingRow
+              icon={<Languages className="size-4" />}
+              label={t("nav.language")}
+              value={locale === "tr" ? "Türkçe" : "English"}
+              action={<LanguageToggle />}
+            />
             <SettingRow
               icon={<KeyRound className="size-4" />}
-              label="Password"
+              label={t("profile.password")}
               value="••••••••"
               action={
-                <Button variant="secondary" size="sm" disabled title="Coming soon">
-                  Change
+                <Button variant="secondary" size="sm" disabled title={t("common.comingSoon")}>
+                  {t("profile.change")}
                 </Button>
               }
             />
           </div>
           <Button variant="destructive" className="mt-6 w-full sm:w-auto" onClick={() => logout.mutate()} disabled={logout.isPending}>
             <LogOut className="size-4" />
-            Sign out
+            {t("nav.signOut")}
           </Button>
         </section>
 

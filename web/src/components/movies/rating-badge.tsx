@@ -1,3 +1,5 @@
+import { useT } from "@/i18n";
+import { compactNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Movie } from "@/types/movie";
 
@@ -40,9 +42,6 @@ function TMDBLogo({ size = "md" }: { size?: Size }) {
   );
 }
 
-function compactVotes(n: number) {
-  return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
-}
 
 /**
  * The movie's rating with its source made explicit. IMDb's own rating when
@@ -60,6 +59,7 @@ export function RatingBadge({
   showVotes?: boolean;
   className?: string;
 }) {
+  const { t, locale } = useT();
   const imdb = movie.imdb_rating ?? 0;
   const source = imdb > 0 ? "IMDb" : movie.vote_average > 0 ? "TMDB" : null;
   if (!source) return null;
@@ -68,8 +68,8 @@ export function RatingBadge({
   return (
     <span
       className={cn("inline-flex items-center gap-1.5", className)}
-      aria-label={`${source} rating ${score.toFixed(1)} out of 10`}
-      title={source === "IMDb" ? "IMDb rating" : "TMDB user score (no IMDb rating yet)"}
+      aria-label={t("rating.aria", { source, score: score.toFixed(1) })}
+      title={t(source === "IMDb" ? "rating.imdb" : "rating.tmdb")}
     >
       {source === "IMDb" ? <IMDbLogo size={size} /> : <TMDBLogo size={size} />}
       <span className={cn("font-bold tabular-nums text-foreground", SCORE[size])}>
@@ -77,7 +77,7 @@ export function RatingBadge({
         <span className="font-medium text-muted-foreground">/10</span>
       </span>
       {showVotes && source === "IMDb" && movie.imdb_votes ? (
-        <span className={cn("text-muted-foreground", SCORE.sm)}>({compactVotes(movie.imdb_votes)})</span>
+        <span className={cn("text-muted-foreground", SCORE.sm)}>({compactNumber(movie.imdb_votes, locale)})</span>
       ) : null}
     </span>
   );

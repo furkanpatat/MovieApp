@@ -1,9 +1,10 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api-client";
+import { titleApiPath, titleKey, type TitleRef } from "@/lib/media";
 import { useAuthStore } from "@/store/auth-store";
 import { useLibraryStore } from "@/store/library-store";
-import type { Comment, Interactions, Movie, MoviePage, Person } from "@/types/movie";
+import type { Comment, Interactions, MediaType, Movie, MoviePage, Person } from "@/types/movie";
 
 /**
  * Popular movies, paginated by the Catalog service (GET /api/v1/movies/popular
@@ -31,6 +32,20 @@ export function usePopularMovies() {
   });
 }
 
+/** Popular movies or series (media type `mode`), paged like
+ *  usePopularMovies: GET /api/v1/{movies,tv}/popular. */
+export function usePopularTitles(mode: MediaType, enabled: boolean = true) {
+  return useInfiniteQuery({
+    queryKey: [mode === "tv" ? "tv" : "movies", "popular"],
+    queryFn: ({ pageParam }) =>
+      apiFetch<MoviePage>(`/api/v1/${mode === "tv" ? "tv" : "movies"}/popular?page=${pageParam}`, { auth: false }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.page < lastPage.total_pages ? lastPage.page + 1 : undefined),
+    staleTime: 60_000,
+    enabled,
+  });
+}
+
 /** An actor (or director...) and their movies: GET /api/v1/people/{id},
  *  served by the Catalog through the same Redis/Postgres caches as movies. */
 export function usePerson(personId: number) {
@@ -46,20 +61,88 @@ export function normalizeQuery(q: string) {
   return q.trim().replace(/\s+/g, " ");
 }
 
-/** TMDB title search (GET /api/v1/search/movies), paged like popular. */
-export function useSearchMovies(query: string) {
+/** TMDB title search of movies or series (GET /api/v1/search/{movies,tv}),
+ *  paged like popular. */
+export function useSearchTitles(query: string, mode: MediaType = "movie", enabled: boolean = true) {
   const q = normalizeQuery(query);
+  const path = mode === "tv" ? "tv" : "movies";
   return useInfiniteQuery({
-    queryKey: ["search", q.toLowerCase()],
+    queryKey: ["search", path, q.toLowerCase()],
     queryFn: ({ pageParam, signal }) =>
-      apiFetch<MoviePage>(`/api/v1/search/movies?q=${encodeURIComponent(q)}&page=${pageParam}`, {
+      apiFetch<MoviePage>(`/api/v1/search/${path}?q=${encodeURIComponent(q)}&page=${pageParam}`, {
         auth: false,
         signal,
       }),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.page < last.total_pages ? last.page + 1 : undefined),
-    enabled: q.length >= 2,
+    enabled: enabled && q.length >= 2,
     staleTime: 5 * 60_000,
+  });
+}
+
+// --- Discover feed ----------------------------------------------------------
+
+/** TMDB caps /discover at 500 pages. */
+const DISCOVER_MAX_PAGE = 500;
+/** A fresh feed starts on one of the first pages (every genre has at least
+ *  this many: the least populated has about a dozen). */
+const DISCOVER_START_PAGES = 8;
+
+/**
+ * The Discover feed (GET /api/v1/discover/{movies,tv}): popular movies or
+ * series, one genre or all (genre 0; TV has its own genre ids). It starts on a random page and walks on from there,
+ * wrapping at the end, and each page is shuffled, so every visit feels new
+ * while the catalog still serves cached pages. The start is fixed per mount
+ * (the `seed`), so refetches and "load more" stay consistent.
+ */
+export function useDiscover(mode: MediaType, genreId: number, seed: number, enabled: boolean = true) {
+  const start = 1 + (seed % DISCOVER_START_PAGES);
+  const path = mode === "tv" ? "tv" : "movies";
+  return useInfiniteQuery({
+    queryKey: ["discover", path, genreId, seed],
+    queryFn: async ({ pageParam, signal }) => {
+      const page = await apiFetch<MoviePage>(`/api/v1/discover/${path}?genre=${genreId}&page=${pageParam}`, {
+        auth: false,
+        signal,
+      });
+      return { ...page, results: shuffle(page.results, seed + page.page) };
+    },
+    initialPageParam: start,
+    enabled,
+    getNextPageParam: (last, pages) => {
+      const total = Math.min(last.total_pages, DISCOVER_MAX_PAGE);
+      if (pages.length >= total) return undefined; // seen every page
+      return last.page >= total ? 1 : last.page + 1;
+    },
+    staleTime: 10 * 60_000,
+  });
+}
+
+/** Deterministic Fisher-Yates (mulberry32), so a refetch keeps the order. */
+function shuffle<T>(items: T[], seed: number): T[] {
+  const out = [...items];
+  let a = seed >>> 0;
+  const rand = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// --- TV series ----------------------------------------------------------------
+
+export function useTVDetails(showId: number, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ["tv", showId],
+    queryFn: () => apiFetch<Movie>(`/api/v1/tv/${showId}`, { auth: false }),
+    enabled,
   });
 }
 
@@ -73,17 +156,28 @@ export function useMovieDetails(movieId: number, enabled: boolean = true) {
   });
 }
 
-function interactionsKey(movieId: number) {
-  return ["interactions", movieId] as const;
+/** Details of a movie or a series, whichever `title` is. */
+export function useTitleDetails(title: Pick<Movie, "id" | "media_type">, enabled: boolean = true) {
+  const tv = title.media_type === "tv";
+  return useQuery({
+    queryKey: [tv ? "tv" : "movie", title.id],
+    queryFn: () => apiFetch<Movie>(tv ? `/api/v1/tv/${title.id}` : `/api/v1/movies/${title.id}`, { auth: false }),
+    enabled,
+  });
 }
 
-/** GET /api/v1/movies/{id}/interactions — the CQRS read model (Redis-backed,
- *  public). Ratings and comments posted through useRateMovie/useComment are
+function interactionsKey(title: TitleRef) {
+  return ["interactions", titleKey(title)] as const;
+}
+
+/** GET /api/v1/{movies,tv}/{id}/interactions — the CQRS read model
+ *  (Redis-backed, public), for a movie or a series. Ratings and comments posted through useRateMovie/useComment are
  *  applied to this cache optimistically; see those hooks for why. */
-export function useInteractions(movieId: number) {
+export function useInteractions(title: TitleRef, enabled: boolean = true) {
   return useQuery({
-    queryKey: interactionsKey(movieId),
-    queryFn: () => apiFetch<Interactions>(`/api/v1/movies/${movieId}/interactions`, { auth: false }),
+    queryKey: interactionsKey(title),
+    queryFn: () => apiFetch<Interactions>(`${titleApiPath(title)}/interactions`, { auth: false }),
+    enabled,
     // The read model itself updates within ~1s of a write (outbox relay poll
     // + RabbitMQ delivery); no need to poll faster than that client-side.
     staleTime: 5_000,
@@ -99,7 +193,7 @@ export function useInteractions(movieId: number) {
  * and onError rolls the optimistic change back if the write was rejected
  * outright (e.g. the outbox insert itself failed).
  */
-export function useRateMovie(movieId: number, movie?: Movie) {
+export function useRateMovie(movie: Movie) {
   const queryClient = useQueryClient();
   const saveMyRating = useLibraryStore((s) => s.rate);
   return useMutation({
@@ -108,8 +202,8 @@ export function useRateMovie(movieId: number, movie?: Movie) {
     // profile) and the vote in the community average (Interaction, CQRS).
     mutationFn: async (score: number) => {
       const [, accepted] = await Promise.all([
-        movie ? saveMyRating(movie, score) : undefined,
-        apiFetch<{ event_id: string }>(`/api/v1/movies/${movieId}/rate`, {
+        saveMyRating(movie, score),
+        apiFetch<{ event_id: string }>(`${titleApiPath(movie)}/rate`, {
           method: "POST",
           body: { score },
         }),
@@ -117,9 +211,9 @@ export function useRateMovie(movieId: number, movie?: Movie) {
       return accepted;
     },
     onMutate: async (score) => {
-      await queryClient.cancelQueries({ queryKey: interactionsKey(movieId) });
-      const previous = queryClient.getQueryData<Interactions>(interactionsKey(movieId));
-      queryClient.setQueryData<Interactions>(interactionsKey(movieId), (old) => {
+      await queryClient.cancelQueries({ queryKey: interactionsKey(movie) });
+      const previous = queryClient.getQueryData<Interactions>(interactionsKey(movie));
+      queryClient.setQueryData<Interactions>(interactionsKey(movie), (old) => {
         if (!old) return old;
         // We can't know client-side whether this replaces an earlier vote
         // from the same user (that dedup happens server-side) — optimistic
@@ -132,10 +226,10 @@ export function useRateMovie(movieId: number, movie?: Movie) {
       return { previous };
     },
     onError: (_err, _score, context) => {
-      if (context?.previous) queryClient.setQueryData(interactionsKey(movieId), context.previous);
+      if (context?.previous) queryClient.setQueryData(interactionsKey(movie), context.previous);
     },
     onSettled: () => {
-      setTimeout(() => queryClient.invalidateQueries({ queryKey: interactionsKey(movieId) }), 1500);
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: interactionsKey(movie) }), 1500);
     },
   });
 }
@@ -146,19 +240,19 @@ export interface OptimisticComment extends Comment {
   pending?: boolean;
 }
 
-export function useComment(movieId: number) {
+export function useComment(title: TitleRef) {
   const queryClient = useQueryClient();
   const userId = useAuthStore((s) => s.userId);
 
   return useMutation({
     mutationFn: (text: string) =>
-      apiFetch<{ event_id: string }>(`/api/v1/movies/${movieId}/comment`, {
+      apiFetch<{ event_id: string }>(`${titleApiPath(title)}/comment`, {
         method: "POST",
         body: { text },
       }),
     onMutate: async (text) => {
-      await queryClient.cancelQueries({ queryKey: interactionsKey(movieId) });
-      const previous = queryClient.getQueryData<Interactions>(interactionsKey(movieId));
+      await queryClient.cancelQueries({ queryKey: interactionsKey(title) });
+      const previous = queryClient.getQueryData<Interactions>(interactionsKey(title));
       const optimistic: OptimisticComment = {
         id: `optimistic-${Date.now()}`,
         user_id: userId ?? "you",
@@ -166,16 +260,16 @@ export function useComment(movieId: number) {
         created_at: new Date().toISOString(),
         pending: true,
       };
-      queryClient.setQueryData<Interactions>(interactionsKey(movieId), (old) =>
+      queryClient.setQueryData<Interactions>(interactionsKey(title), (old) =>
         old ? { ...old, recent_comments: [optimistic, ...old.recent_comments] } : old,
       );
       return { previous };
     },
     onError: (_err, _text, context) => {
-      if (context?.previous) queryClient.setQueryData(interactionsKey(movieId), context.previous);
+      if (context?.previous) queryClient.setQueryData(interactionsKey(title), context.previous);
     },
     onSettled: () => {
-      setTimeout(() => queryClient.invalidateQueries({ queryKey: interactionsKey(movieId) }), 1500);
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: interactionsKey(title) }), 1500);
     },
   });
 }

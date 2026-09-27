@@ -10,8 +10,17 @@ export interface Genre {
   name: string;
 }
 
+/** "movie" or "tv". TMDB numbers them separately (movie 1399 and tv 1399
+ *  are different titles), so a title is identified by both. */
+export type MediaType = "movie" | "tv";
+
+/** A title: a movie, or a TV series (media_type "tv") in the same shape.
+ *  For a series, title is its name, release_date its first air date and
+ *  runtime the episode length. */
 export interface Movie {
   id: number;
+  /** Absent on older cached responses: treat as "movie". */
+  media_type?: MediaType;
   title: string;
   overview: string;
   poster_path?: string;
@@ -39,6 +48,14 @@ export interface Movie {
   box_office?: string;
   country?: string;
   language?: string;
+  /** TV series only (details). */
+  number_of_seasons?: number;
+  number_of_episodes?: number;
+  /** "Returning Series", "Ended", "Canceled"... */
+  status?: string;
+  last_air_date?: string;
+  networks?: string[];
+  creators?: string[];
 }
 
 /** One movie in a person's filmography: a movie plus their role on it. */

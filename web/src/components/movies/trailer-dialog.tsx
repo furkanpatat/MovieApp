@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useT } from "@/i18n";
 import { Loader2 } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,6 +15,7 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/
  */
 export function TrailerDialog({ videoKey, title, trigger }: { videoKey: string; title: string; trigger: ReactNode }) {
   const [loaded, setLoaded] = useState(false);
+  const { t } = useT();
 
   return (
     <Dialog onOpenChange={(open) => !open && setLoaded(false)}>
@@ -31,16 +33,16 @@ export function TrailerDialog({ videoKey, title, trigger }: { videoKey: string; 
           (e.currentTarget as HTMLElement).focus();
         }}
       >
-        <DialogTitle className="sr-only">{title} — trailer</DialogTitle>
+        <DialogTitle className="sr-only">{t("detail.trailerOf", { title })}</DialogTitle>
         <div className="relative aspect-video w-full">
           {!loaded && (
             <div className="absolute inset-0 flex items-center justify-center bg-zinc-950">
-              <Loader2 className="size-10 animate-spin text-primary" aria-label="Loading trailer" />
+              <Loader2 className="size-10 animate-spin text-primary" aria-label={t("detail.loadingTrailer")} />
             </div>
           )}
           <iframe
             src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoKey)}?autoplay=1&playsinline=1&rel=0&modestbranding=1`}
-            title={`${title} trailer`}
+            title={t("detail.trailerOf", { title })}
             allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
             allowFullScreen
             onLoad={() => setLoaded(true)}

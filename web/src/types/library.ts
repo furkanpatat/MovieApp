@@ -5,10 +5,20 @@
  */
 import type { Movie } from "@/types/movie";
 
-/** The movie part of a library row: the summary fields a card renders. */
+/** The title part of a library row (a movie or a series, per media_type):
+ *  the summary fields a card renders. */
 export type LibraryMovie = Pick<
   Movie,
-  "id" | "title" | "overview" | "poster_path" | "backdrop_path" | "release_date" | "vote_average" | "vote_count" | "imdb_rating"
+  | "id"
+  | "media_type"
+  | "title"
+  | "overview"
+  | "poster_path"
+  | "backdrop_path"
+  | "release_date"
+  | "vote_average"
+  | "vote_count"
+  | "imdb_rating"
 >;
 
 /** GET /api/v1/watchlist items, POST /api/v1/watchlist response. */

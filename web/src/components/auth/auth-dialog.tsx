@@ -12,12 +12,13 @@ import { ApiError } from "@/lib/api-client";
 import { backdropUrl } from "@/lib/tmdb-image";
 import { usePopularMovies } from "@/hooks/queries";
 import { useLogin, useRegister } from "@/hooks/use-auth";
+import { useT, type MessageKey } from "@/i18n";
 import { useAuthPrompt, type AuthMode as Mode } from "@/store/auth-prompt-store";
 
-const COPY: Record<Mode, { title: string; description: string }> = {
-  "sign-in": { title: "Welcome back", description: "Sign in to pick up where you left off." },
-  register: { title: "Create your account", description: "Rate, comment, and host watch parties with friends." },
-};
+const COPY = {
+  "sign-in": { title: "auth.signInTitle", description: "auth.signInDescription" },
+  register: { title: "auth.registerTitle", description: "auth.registerDescription" },
+} as const satisfies Record<Mode, { title: MessageKey; description: MessageKey }>;
 
 /**
  * Sign-in / create-account modal. Any button can open it:
@@ -61,6 +62,7 @@ function AuthDialogFrame({
   onModeChange: (mode: Mode) => void;
   trigger?: ReactNode;
 }) {
+  const { t } = useT();
   const setOpen = onOpenChange;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -77,8 +79,8 @@ function AuthDialogFrame({
           {/* Phones don't get the visual pane, so the brand lives here instead. */}
           <Logo className="mb-6 md:hidden" />
 
-          <DialogTitle className="text-2xl font-bold tracking-tight text-white">{COPY[mode].title}</DialogTitle>
-          <DialogDescription className="mt-1.5 text-sm text-zinc-400">{COPY[mode].description}</DialogDescription>
+          <DialogTitle className="text-2xl font-bold tracking-tight text-white">{t(COPY[mode].title)}</DialogTitle>
+          <DialogDescription className="mt-1.5 text-sm text-zinc-400">{t(COPY[mode].description)}</DialogDescription>
 
           <ModeToggle mode={mode} onChange={setMode} />
 
@@ -137,6 +139,7 @@ function Logo({ className = "" }: { className?: string }) {
  * top titles per open so the gateway feels alive.
  */
 function VisualPane() {
+  const { t } = useT();
   const { data } = usePopularMovies();
   const candidates = (data?.pages[0]?.results ?? []).filter((m) => m.backdrop_path).slice(0, 6);
   const [pick] = useState(() => Math.random());
@@ -164,14 +167,14 @@ function VisualPane() {
         <Logo />
         <div>
           <p className="text-3xl font-bold leading-tight tracking-tight text-balance text-white">
-            Unlimited stories.
+            {t("auth.heroLine1")}
             <br />
-            <span className="text-primary">One seat away.</span>
+            <span className="text-primary">{t("auth.heroLine2")}</span>
           </p>
           <p className="mt-3 max-w-xs text-sm text-zinc-300">
-            Discover what&apos;s trending, rate what you love, and watch together in real time.
+            {t("auth.heroBody")}
           </p>
-          {movie && <p className="mt-8 text-xs uppercase tracking-widest text-zinc-500">Now trending · {movie.title}</p>}
+          {movie && <p className="mt-8 text-xs uppercase tracking-widest text-zinc-500">{t("auth.nowTrending", { title: movie.title })}</p>}
         </div>
       </div>
     </div>
@@ -179,8 +182,9 @@ function VisualPane() {
 }
 
 function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
+  const { t } = useT();
   return (
-    <div role="tablist" aria-label="Account" className="mt-6 grid grid-cols-2 rounded-full bg-zinc-900/80 p-1 ring-1 ring-white/5">
+    <div role="tablist" aria-label={t("auth.account")} className="mt-6 grid grid-cols-2 rounded-full bg-zinc-900/80 p-1 ring-1 ring-white/5">
       {(["sign-in", "register"] as const).map((m) => (
         <button
           key={m}
@@ -199,7 +203,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
               transition={{ type: "spring", bounce: 0.2, duration: 0.4 }}
             />
           )}
-          <span className="relative">{m === "sign-in" ? "Sign in" : "Create account"}</span>
+          <span className="relative">{t(m === "sign-in" ? "auth.signIn" : "auth.createAccount")}</span>
         </button>
       ))}
     </div>
@@ -213,6 +217,7 @@ function FloatingInput({
   type = "text",
   ...props
 }: { label: string; hint?: string } & InputHTMLAttributes<HTMLInputElement>) {
+  const { t } = useT();
   const id = useId();
   const [reveal, setReveal] = useState(false);
   const isPassword = type === "password";
@@ -239,7 +244,7 @@ function FloatingInput({
           <button
             type="button"
             onClick={() => setReveal((r) => !r)}
-            aria-label={reveal ? "Hide password" : "Show password"}
+            aria-label={t(reveal ? "auth.hidePassword" : "auth.showPassword")}
             className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-500 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-primary/60"
           >
             {reveal ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -262,14 +267,14 @@ function SubmitButton({ pending, children }: { pending: boolean; children: React
 
 /** Mock providers: the auth service only does username/password today. */
 function SocialButtons() {
-  const soon = (provider: string) =>
-    toast(`Continue with ${provider} is coming soon`, { id: "social-auth-soon" });
+  const { t } = useT();
+  const soon = (provider: string) => toast(t("auth.socialSoon", { provider }), { id: "social-auth-soon" });
 
   return (
     <>
       <div className="my-5 flex items-center gap-3 text-[11px] font-medium uppercase tracking-widest text-zinc-500">
         <span className="h-px flex-1 bg-white/10" />
-        or
+        {t("auth.or")}
         <span className="h-px flex-1 bg-white/10" />
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -285,11 +290,12 @@ function SocialButtons() {
 }
 
 function SocialButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+  const { t } = useT();
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label={`Continue with ${label}`}
+      aria-label={t("auth.continueWith", { provider: label })}
       className="flex h-11 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] text-sm font-medium text-white outline-none transition-colors hover:border-white/20 hover:bg-white/[0.07] focus-visible:ring-2 focus-visible:ring-primary/60"
     >
       {children}
@@ -320,21 +326,21 @@ function AppleIcon() {
 /** Turns an auth API failure into copy for the form. The service's own 400
  *  messages are already specific ("password must be at least 8 characters")
  *  and are shown as-is; the rest get friendlier wording. */
-function errorMessage(err: unknown): string {
-  if (!(err instanceof ApiError)) return "Something went wrong. Please try again.";
+function errorMessage(err: unknown, t: (key: MessageKey) => string): string {
+  if (!(err instanceof ApiError)) return t("auth.errorGeneric");
   switch (true) {
     case err.status === 0:
       return err.message; // unreachable: api-client's wording
     case err.status === 401:
-      return "Incorrect username, email or password.";
+      return t("auth.errorCredentials");
     case err.status === 409:
-      return "That username or email is already registered.";
+      return t("auth.errorTaken");
     case err.status === 429:
-      return "Too many attempts. Please wait a minute and try again.";
+      return t("auth.errorThrottled");
     case err.status === 400:
       return err.message.charAt(0).toUpperCase() + err.message.slice(1) + ".";
     default:
-      return "Something went wrong on our side. Please try again.";
+      return t("auth.errorServer");
   }
 }
 
@@ -347,6 +353,7 @@ function FormError({ children }: { children: ReactNode }) {
 }
 
 function SignInForm({ onSuccess }: { onSuccess: () => void }) {
+  const { t } = useT();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const mutation = useLogin();
@@ -359,22 +366,23 @@ function SignInForm({ onSuccess }: { onSuccess: () => void }) {
         mutation.mutate({ login, password }, { onSuccess });
       }}
     >
-      <FloatingInput label="Username or email" autoComplete="username" required value={login} onChange={(e) => setLogin(e.target.value)} />
+      <FloatingInput label={t("auth.usernameOrEmail")} autoComplete="username" required value={login} onChange={(e) => setLogin(e.target.value)} />
       <FloatingInput
-        label="Password"
+        label={t("auth.password")}
         type="password"
         autoComplete="current-password"
         required
         value={password}
         onChange={(e) => setPassword(e.target.value)}
       />
-      {mutation.isError && <FormError>{errorMessage(mutation.error)}</FormError>}
-      <SubmitButton pending={mutation.isPending}>Sign in</SubmitButton>
+      {mutation.isError && <FormError>{errorMessage(mutation.error, t)}</FormError>}
+      <SubmitButton pending={mutation.isPending}>{t("auth.signIn")}</SubmitButton>
     </form>
   );
 }
 
 function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
+  const { t } = useT();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -396,35 +404,35 @@ function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
       }}
     >
       <FloatingInput
-        label="Username"
+        label={t("auth.username")}
         autoComplete="username"
         required
         minLength={3}
         maxLength={32}
         // Mirrors the Auth service's rule, so the browser flags it before a round trip.
         pattern="[A-Za-z0-9._\-]{3,32}"
-        title="3-32 characters: letters, numbers, '.', '_' or '-'"
+        title={t("auth.usernameRule")}
         value={username}
         onChange={(e) => setUsername(e.target.value)}
       />
-      <FloatingInput label="Email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+      <FloatingInput label={t("auth.email")} type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
       <FloatingInput
-        label="Password"
+        label={t("auth.password")}
         type="password"
         autoComplete="new-password"
         required
         minLength={8}
         maxLength={72} // bcrypt's limit; the service rejects longer
-        hint="At least 8 characters."
+        hint={t("auth.passwordHint")}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
       />
-      {register.isError && <FormError>{errorMessage(register.error)}</FormError>}
+      {register.isError && <FormError>{errorMessage(register.error, t)}</FormError>}
       {login.isError && (
         // The account exists at this point; only the automatic sign-in failed.
-        <FormError>Your account was created, but signing you in failed. Please use Sign in.</FormError>
+        <FormError>{t("auth.errorAutoLogin")}</FormError>
       )}
-      <SubmitButton pending={pending}>Create account</SubmitButton>
+      <SubmitButton pending={pending}>{t("auth.createAccount")}</SubmitButton>
     </form>
   );
 }

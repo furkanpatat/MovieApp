@@ -7,7 +7,11 @@ import { Loader2, Search, SearchX } from "lucide-react";
 import { MovieCard } from "@/components/movies/movie-card";
 import { MovieCardSkeleton } from "@/components/movies/movie-card-skeleton";
 import { Button } from "@/components/ui/button";
-import { normalizeQuery, useSearchMovies } from "@/hooks/queries";
+import { normalizeQuery, useSearchTitles } from "@/hooks/queries";
+import { plural, useT, type MessageKey } from "@/i18n";
+import { cn } from "@/lib/utils";
+import { useMediaMode, useMediaModeStore } from "@/store/media-mode-store";
+import type { MediaType } from "@/types/movie";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
 const GRID = "grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
@@ -49,7 +53,11 @@ function SearchShell({ query }: { query: string }) {
     router.replace(debounced ? `${pathname}?q=${encodeURIComponent(debounced)}` : pathname, { scroll: false });
   }, [debounced, query, pathname, router]);
 
-  const search = useSearchMovies(debounced);
+  // Movies or series: the app's mode, which the toggle below also switches.
+  const { mode, ready } = useMediaMode();
+  const search = useSearchTitles(debounced, mode, ready);
+  const { t, locale } = useT();
+  const tv = mode === "tv";
   const movies = search.data?.pages.flatMap((p) => p.results) ?? [];
   const total = search.data?.pages[0]?.total_results ?? 0;
   const tooShort = debounced.length < 2;
@@ -67,16 +75,18 @@ function SearchShell({ query }: { query: string }) {
           autoFocus
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="Search for a movie…"
-          aria-label="Search movies"
+          placeholder={t(tv ? "search.forSeries" : "search.forMovie")}
+          aria-label={t(tv ? "search.seriesLabel" : "search.moviesLabel")}
           className="h-14 w-full min-w-0 bg-transparent text-lg outline-none placeholder:text-muted-foreground"
         />
-        {search.isFetching && <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" aria-label="Searching" />}
+        {search.isFetching && <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" aria-label={t("search.searching")} />}
       </form>
 
-      <div className="mt-10">
+      <ModeToggle mode={mode} />
+
+      <div className="mt-8">
         {tooShort ? (
-          <Empty icon={Search} title="Find your next movie" body="Type at least two characters to search by title." />
+          <Empty icon={Search} title={t(tv ? "search.findSeries" : "search.findMovie")} body={t("search.typeMore")} />
         ) : search.status === "pending" ? (
           <div className={GRID}>
             {Array.from({ length: 12 }).map((_, i) => (
@@ -86,16 +96,16 @@ function SearchShell({ query }: { query: string }) {
         ) : search.status === "error" ? (
           <Empty
             icon={SearchX}
-            title="Search is unavailable"
-            body="We couldn't reach the movie database. Please try again."
-            action={<Button onClick={() => void search.refetch()}>Try again</Button>}
+            title={t("search.unavailableTitle")}
+            body={t("search.unavailableBody")}
+            action={<Button onClick={() => void search.refetch()}>{t("common.tryAgain")}</Button>}
           />
         ) : movies.length === 0 ? (
-          <Empty icon={SearchX} title={`No results for “${debounced}”`} body="Check the spelling or try a different title." />
+          <Empty icon={SearchX} title={t("search.noResults", { q: debounced })} body={t("search.checkSpelling")} />
         ) : (
           <>
             <p className="mb-6 text-sm text-muted-foreground">
-              {total.toLocaleString()} {total === 1 ? "result" : "results"} for{" "}
+              {t(plural(total, "search.resultsOne", "search.resultsOther"), { n: total.toLocaleString(locale) })}{" "}
               <span className="font-semibold text-foreground">“{debounced}”</span>
             </p>
             <div className={GRID}>
@@ -107,13 +117,43 @@ function SearchShell({ query }: { query: string }) {
               <div className="mt-10 flex justify-center">
                 <Button variant="secondary" onClick={() => void search.fetchNextPage()} disabled={search.isFetchingNextPage}>
                   {search.isFetchingNextPage && <Loader2 className="size-4 animate-spin" />}
-                  Load more
+                  {t("search.loadMore")}
                 </Button>
               </div>
             )}
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+const MODES = [
+  { value: "movie", label: "mode.movies" },
+  { value: "tv", label: "mode.series" },
+] as const satisfies { value: MediaType; label: MessageKey }[];
+
+/** Movies | Series, a segmented control over the app-wide mode (the logo). */
+function ModeToggle({ mode }: { mode: MediaType }) {
+  const setMode = useMediaModeStore((s) => s.setMode);
+  const { t } = useT();
+  return (
+    <div role="radiogroup" aria-label={t("search.searchIn")} className="mx-auto mt-4 flex w-fit rounded-full border border-white/10 bg-white/5 p-1">
+      {MODES.map((m) => (
+        <button
+          key={m.value}
+          type="button"
+          role="radio"
+          aria-checked={mode === m.value}
+          onClick={() => setMode(m.value)}
+          className={cn(
+            "rounded-full px-4 py-1.5 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary",
+            mode === m.value ? "bg-white font-semibold text-black" : "font-medium text-white/70 hover:text-white",
+          )}
+        >
+          {t(m.label)}
+        </button>
+      ))}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { MovieCard } from "@/components/movies/movie-card";
 import { MovieCardSkeleton } from "@/components/movies/movie-card-skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useT } from "@/i18n";
 import type { Movie } from "@/types/movie";
 
 // Card width per breakpoint: ~2.3 cards visible on phones up to ~6.5 on wide
@@ -23,6 +24,7 @@ const ITEM = "w-[42vw] shrink-0 snap-start sm:w-[29vw] md:w-[21vw] lg:w-[17vw] x
  * trap those fixed panels inside the row again.
  */
 export const MovieRow = memo(function MovieRow({ title, movies }: { title: string; movies: Movie[] }) {
+  const { t } = useT();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [canScroll, setCanScroll] = useState({ left: false, right: false });
 
@@ -72,7 +74,7 @@ export const MovieRow = memo(function MovieRow({ title, movies }: { title: strin
           <button
             key={side}
             type="button"
-            aria-label={`Scroll ${title} ${side}`}
+            aria-label={t("home.scrollRow", { title, dir: t(side === "left" ? "home.left" : "home.right") })}
             onClick={() => page(side === "left" ? -1 : 1)}
             className={`absolute bottom-12 top-11 z-20 hidden w-8 items-center justify-center bg-background/70 text-white opacity-0 transition-opacity hover:bg-background/90 focus-visible:opacity-100 group-hover/row:opacity-100 md:flex ${
               side === "left" ? "left-0 rounded-r-md" : "right-0 rounded-l-md"

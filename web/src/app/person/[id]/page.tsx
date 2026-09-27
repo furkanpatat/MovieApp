@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { CalendarDays, MapPin, TriangleAlert, UserRound } from "lucide-react";
 
 import { MovieRow, MovieRowSkeleton } from "@/components/movies/movie-row";
+import { useT, type Locale, type MessageKey } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePerson } from "@/hooks/queries";
@@ -20,14 +21,15 @@ export default function PersonPage() {
   const personId = Number(params.id);
   const validId = Number.isInteger(personId) && personId > 0;
   const person = usePerson(validId ? personId : -1);
+  const { t } = useT();
 
-  if (!validId) return <ErrorState message="That doesn't look like a valid person link." />;
+  if (!validId) return <ErrorState message={t("person.invalid")} />;
   if (person.status === "pending") return <PersonSkeleton />;
   if (person.status === "error") {
     const notFound = person.error instanceof ApiError && person.error.status === 404;
     return (
       <ErrorState
-        message={notFound ? "We couldn't find that person." : "Couldn't load this page."}
+        message={t(notFound ? "person.notFound" : "person.loadFailed")}
         onRetry={notFound ? undefined : () => void person.refetch()}
       />
     );
@@ -35,10 +37,10 @@ export default function PersonPage() {
   return <PersonView person={person.data} />;
 }
 
-function formatDate(iso?: string) {
+function formatDate(iso: string | undefined, locale: Locale) {
   if (!iso) return null;
   const d = new Date(`${iso}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en", { day: "numeric", month: "long", year: "numeric" });
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(locale, { day: "numeric", month: "long", year: "numeric" });
 }
 
 function ageAt(birthday: string, end?: string) {
@@ -51,6 +53,12 @@ function ageAt(birthday: string, end?: string) {
 
 function PersonView({ person: p }: { person: Person }) {
   const [bioOpen, setBioOpen] = useState(false);
+  const { t, locale } = useT();
+  const department = (d: string) => {
+    const key = `person.departments.${d}` as MessageKey;
+    const text = t(key);
+    return text === key ? d : text;
+  };
   const photo = profileUrl(p.profile_path, "h632");
   // Their most popular movie's backdrop sets the mood behind the header.
   const backdrop = backdropUrl(p.credits.find((c) => c.backdrop_path)?.backdrop_path, "w1280");
@@ -66,16 +74,16 @@ function PersonView({ person: p }: { person: Person }) {
   const rows =
     p.known_for_department && p.known_for_department !== "Acting"
       ? [
-          { title: `${p.known_for_department}`, movies: crew },
-          { title: "Acting", movies: acting },
+          { title: department(p.known_for_department), movies: crew },
+          { title: t("person.acting"), movies: acting },
         ]
       : [
-          { title: "Known for", movies: acting },
-          { title: "Behind the camera", movies: crew },
+          { title: t("person.knownFor"), movies: acting },
+          { title: t("person.behindCamera"), movies: crew },
         ];
 
-  const born = formatDate(p.birthday);
-  const died = formatDate(p.deathday);
+  const born = formatDate(p.birthday, locale);
+  const died = formatDate(p.deathday, locale);
   const age = p.birthday ? ageAt(p.birthday, p.deathday) : null;
   const bio = p.biography?.trim();
 
@@ -100,7 +108,7 @@ function PersonView({ person: p }: { person: Person }) {
 
           <div className="min-w-0 flex-1">
             {p.known_for_department && (
-              <p className="text-sm font-semibold tracking-wide text-primary uppercase">{p.known_for_department}</p>
+              <p className="text-sm font-semibold tracking-wide text-primary uppercase">{department(p.known_for_department)}</p>
             )}
             <h1 className="mt-1 text-4xl font-bold tracking-tight text-balance sm:text-5xl">{p.name}</h1>
 
@@ -108,32 +116,32 @@ function PersonView({ person: p }: { person: Person }) {
               {born && (
                 <div className="flex items-center gap-1.5">
                   <CalendarDays className="size-4 text-muted-foreground" />
-                  <dt className="sr-only">Born</dt>
+                  <dt className="sr-only">{t("person.born")}</dt>
                   <dd>
                     {born}
-                    {!died && age !== null && <span className="text-muted-foreground"> · {age} years old</span>}
+                    {!died && age !== null && <span className="text-muted-foreground"> · {t("person.yearsOld", { n: age })}</span>}
                   </dd>
                 </div>
               )}
               {died && (
                 <div className="flex items-center gap-1.5">
-                  <dt className="text-muted-foreground">Died</dt>
+                  <dt className="text-muted-foreground">{t("person.died")}</dt>
                   <dd>
                     {died}
-                    {age !== null && <span className="text-muted-foreground"> · aged {age}</span>}
+                    {age !== null && <span className="text-muted-foreground"> · {t("person.aged", { n: age })}</span>}
                   </dd>
                 </div>
               )}
               {p.place_of_birth && (
                 <div className="flex items-center gap-1.5">
                   <MapPin className="size-4 text-muted-foreground" />
-                  <dt className="sr-only">Place of birth</dt>
+                  <dt className="sr-only">{t("person.placeOfBirth")}</dt>
                   <dd>{p.place_of_birth}</dd>
                 </div>
               )}
             </dl>
 
-            <h2 className="mt-8 text-lg font-bold tracking-tight">Biography</h2>
+            <h2 className="mt-8 text-lg font-bold tracking-tight">{t("person.biography")}</h2>
             {bio ? (
               <>
                 <p
@@ -149,7 +157,7 @@ function PersonView({ person: p }: { person: Person }) {
                     onClick={() => setBioOpen((o) => !o)}
                     className="mt-2 text-sm font-semibold text-primary underline-offset-4 hover:underline"
                   >
-                    {bioOpen ? "Show less" : "Read more"}
+                    {t(bioOpen ? "person.showLess" : "person.readMore")}
                   </button>
                 )}
               </>
