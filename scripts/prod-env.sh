@@ -3,10 +3,9 @@
 # Postgres, Redis, RabbitMQ and JWT, plus your domain. API keys (TMDB, OMDb,
 # Groq) are left for you to paste in by hand. Never overwrites an existing .env.
 #
-#   scripts/prod-env.sh kinocut.com you@example.com
+#   scripts/prod-env.sh kinora.duckdns.org
 set -euo pipefail
-domain="${1:?usage: scripts/prod-env.sh <domain> <email for HTTPS certificates>}"
-email="${2:?usage: scripts/prod-env.sh <domain> <email for HTTPS certificates>}"
+domain="${1:?usage: scripts/prod-env.sh <domain>}"
 cd "$(dirname "$0")/.."
 [ -e .env ] && { echo ".env already exists; not touching it." >&2; exit 1; }
 
@@ -17,7 +16,6 @@ cat > .env <<ENV
 # Production settings (generated $(date -u +%F)). Keep this file private.
 APP_ENV=production
 DOMAIN=$domain
-ACME_EMAIL=$email
 
 POSTGRES_USER=movieapp
 POSTGRES_DB=movieapp

@@ -39,12 +39,35 @@ ssh root@SERVER_IP
 curl -fsSL https://get.docker.com | sh
 ufw allow OpenSSH && ufw allow 80,443/tcp && ufw allow 443/udp && ufw --force enable
 git clone https://github.com/furkanpatat/MovieApp.git /opt/kinocut && cd /opt/kinocut
-scripts/prod-env.sh kinocut.com you@example.com   # strong random secrets -> .env (mode 600)
+scripts/prod-env.sh kinocut.com                   # strong random secrets -> .env (mode 600)
 nano .env                                         # paste TMDB_API_KEY, OMDB_API_KEY, GROQ_API_KEY
 ```
 
 The data stores publish no ports in production, so the firewall only has to
 allow SSH and HTTP(S).
+
+### Free: Oracle Cloud Always Free + DuckDNS
+
+What the live demo runs on, at no cost:
+
+- **Server:** an Always Free `VM.Standard.A1.Flex` (Arm, Ubuntu 24.04). Create
+  the network first with *Networking → VCN Wizard → Create VCN with Internet
+  Connectivity* (a plain "Create VCN" has no subnet or internet gateway), then
+  pick its **public** subnet and *Automatically assign public IPv4 address*.
+- **Ports:** add ingress rules for TCP 80 and 443 (source `0.0.0.0/0`) to the
+  subnet's *Default Security List*. Oracle's Ubuntu image also has its own
+  iptables `REJECT` rule, so skip `ufw` there and open the ports on the host:
+
+  ```bash
+  for rule in "-p tcp --dport 80" "-p tcp --dport 443" "-p udp --dport 443"; do
+    sudo iptables -I INPUT 5 $rule -m state --state NEW -j ACCEPT
+  done
+  sudo netfilter-persistent save
+  ```
+
+- **Domain:** a free `NAME.duckdns.org` pointed at the server's public IP;
+  `api.NAME.duckdns.org` resolves to it automatically. Log in as `ubuntu`
+  (use `sudo`), then `scripts/prod-env.sh NAME.duckdns.org`.
 
 ## 4. Start
 
@@ -107,7 +130,7 @@ The same stack runs on your machine with `DOMAIN=localhost` (Caddy issues
 local certificates; your browser will warn once):
 
 ```bash
-printf 'APP_ENV=production\nDOMAIN=localhost\nACME_EMAIL=ops@example.com\n' > /tmp/rehearsal.env
+printf 'APP_ENV=production\nDOMAIN=localhost\n' > /tmp/rehearsal.env
 docker compose -p kinoprod --env-file .env --env-file /tmp/rehearsal.env \
   -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 # https://localhost and https://api.localhost/healthz

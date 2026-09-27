@@ -70,7 +70,6 @@ services:
       - "443:443/udp"   # HTTP/3
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN in .env}
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env (certificate expiry notices)}
     volumes:
       - ./deployments/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

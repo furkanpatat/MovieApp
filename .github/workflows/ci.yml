@@ -153,9 +153,9 @@ jobs:
           docker compose --profile observability config -q
       - name: validate production stack + Caddyfile
         run: |
-          printf 'DOMAIN=example.com\nACME_EMAIL=ops@example.com\nJWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
+          printf 'DOMAIN=example.com\nJWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
           docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q
-          docker run --rm -e DOMAIN=example.com -e ACME_EMAIL=ops@example.com \
+          docker run --rm -e DOMAIN=example.com \
             -v "$PWD/deployments/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine \
             caddy validate --config /etc/caddy/Caddyfile
 

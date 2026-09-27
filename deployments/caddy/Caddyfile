@@ -1,7 +1,5 @@
-# Automatic HTTPS (Let's Encrypt) for the site and the API.
-{
-	email {$ACME_EMAIL}
-}
+# Automatic HTTPS (Let's Encrypt) for the site and the API. No account email
+# is needed; Caddy renews the certificates itself.
 
 (common) {
 	encode zstd gzip
