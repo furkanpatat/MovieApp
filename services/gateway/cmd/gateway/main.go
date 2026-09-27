@@ -71,7 +71,13 @@ func run() error {
 			KeyPrefix: "auth:ip:", FailOpen: false, // credential endpoints fail closed
 			TrustForwardedFor: cfg.RateLimit.TrustForwardedFor, Log: log,
 		},
-		UpstreamTimeout:    cfg.UpstreamTimeout,
+		UpstreamTimeout: cfg.UpstreamTimeout,
+		ChatTimeout:     cfg.ChatTimeout,
+		ChatLimiter:     ratelimit.New(rdb, cfg.ChatRateLimit.Requests, cfg.ChatRateLimit.Window),
+		ChatRateLimit: ratelimit.MiddlewareConfig{
+			KeyPrefix: "chat:ip:", FailOpen: cfg.RateLimit.FailOpen,
+			TrustForwardedFor: cfg.RateLimit.TrustForwardedFor, Log: log,
+		},
 		CORSAllowedOrigins: cfg.CORSOrigins(),
 		Ready:              func(c context.Context) error { return rdb.Ping(c).Err() },
 		Log:                log,

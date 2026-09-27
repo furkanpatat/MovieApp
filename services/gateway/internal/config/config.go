@@ -31,6 +31,10 @@ type Config struct {
 	AuthRateLimit AuthRateLimit `envPrefix:"AUTH_RATE_LIMIT_"`
 
 	UpstreamTimeout time.Duration `env:"UPSTREAM_TIMEOUT" envDefault:"10s"`
+	// The AI chat waits on an LLM (several tool rounds): longer timeout, and
+	// a stricter budget since every call costs money.
+	ChatTimeout   time.Duration `env:"CHAT_UPSTREAM_TIMEOUT" envDefault:"60s"`
+	ChatRateLimit ChatRateLimit `envPrefix:"CHAT_RATE_LIMIT_"`
 
 	// CORSAllowedOrigins: comma-separated browser origins allowed to call this
 	// API (e.g. "https://app.example.com"). "*" allows any. Requests with no
@@ -49,6 +53,11 @@ type RateLimit struct {
 	TrustForwardedFor bool `env:"TRUST_FORWARDED_FOR" envDefault:"false"`
 }
 
+type ChatRateLimit struct {
+	Requests int           `env:"REQUESTS" envDefault:"10"`
+	Window   time.Duration `env:"WINDOW" envDefault:"1m"`
+}
+
 type AuthRateLimit struct {
 	Requests int           `env:"REQUESTS" envDefault:"10"`
 	Window   time.Duration `env:"WINDOW" envDefault:"1m"`
@@ -64,6 +73,9 @@ func (c Config) Validate() error {
 	}
 	if c.RateLimit.Requests < 1 || c.RateLimit.Window <= 0 {
 		errs = append(errs, errors.New("RATE_LIMIT_REQUESTS and RATE_LIMIT_WINDOW must be positive"))
+	}
+	if c.ChatRateLimit.Requests < 1 || c.ChatRateLimit.Window <= 0 {
+		errs = append(errs, errors.New("CHAT_RATE_LIMIT_REQUESTS and CHAT_RATE_LIMIT_WINDOW must be positive"))
 	}
 	if c.AuthRateLimit.Requests < 1 || c.AuthRateLimit.Window <= 0 {
 		errs = append(errs, errors.New("AUTH_RATE_LIMIT_REQUESTS and AUTH_RATE_LIMIT_WINDOW must be positive"))

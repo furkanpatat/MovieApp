@@ -11,6 +11,7 @@ var libraryRoutes = [][3]string{ // method, path, body
 	{"DELETE", "/api/v1/watchlist/7", ""},
 	{"GET", "/api/v1/ratings", ""},
 	{"PUT", "/api/v1/ratings", `{"movie_id":7,"rating":8}`},
+	{"POST", "/api/v1/chat", `{"messages":[{"role":"user","content":"hi"}]}`},
 }
 
 func TestLibraryRoutesRequireAuth(t *testing.T) {
@@ -78,7 +79,8 @@ func TestLibraryCookieWritesFromForeignOriginsAreRejected(t *testing.T) {
 
 func TestPeopleAndSearchArePublicCatalogRoutes(t *testing.T) {
 	e := newEnv(t, opts{})
-	for _, path := range []string{"/api/v1/people/31", "/api/v1/search/movies?q=dune"} {
+	paths := []string{"/api/v1/people/31", "/api/v1/search/movies?q=dune", "/api/v1/discover/movies?genre=28", "/api/v1/tv/1399", "/api/v1/tv/popular", "/api/v1/discover/tv?genre=10765", "/api/v1/search/tv?q=office"}
+	for _, path := range paths {
 		resp := e.do(t, "GET", path, "", map[string]string{"X-User-Id": "admin"})
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("%s -> %d", path, resp.StatusCode)
@@ -87,7 +89,7 @@ func TestPeopleAndSearchArePublicCatalogRoutes(t *testing.T) {
 			t.Fatalf("%s: public route forwarded an identity", path)
 		}
 	}
-	if hits, _ := e.catalog.snapshot(); hits != 2 {
+	if hits, _ := e.catalog.snapshot(); hits != len(paths) {
 		t.Fatalf("catalog hits = %d", hits)
 	}
 }

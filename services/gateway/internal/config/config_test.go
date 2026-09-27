@@ -15,6 +15,7 @@ func valid() Config {
 		JWTSecret:     strings.Repeat("s", 32),
 		RateLimit:     RateLimit{Requests: 100, Window: time.Minute},
 		AuthRateLimit: AuthRateLimit{Requests: 10, Window: time.Minute},
+		ChatRateLimit: ChatRateLimit{Requests: 10, Window: time.Minute},
 	}
 }
 
@@ -25,6 +26,7 @@ func TestValidate(t *testing.T) {
 	cases := map[string]func(*Config){
 		"short secret":         func(c *Config) { c.JWTSecret = "short" },
 		"zero auth limit":      func(c *Config) { c.AuthRateLimit.Requests = 0 },
+		"zero chat limit":      func(c *Config) { c.ChatRateLimit.Requests = 0 },
 		"bad auth url":         func(c *Config) { c.AuthURL = "auth" },
 		"bad watchparty url":   func(c *Config) { c.WatchPartyURL = "ws://x" },
 		"zero limit":           func(c *Config) { c.RateLimit.Requests = 0 },
