@@ -16,6 +16,18 @@ type Config struct {
 	Cache   Cache              `envPrefix:"CACHE_"`
 	Refresh Refresh            `envPrefix:"REFRESH_"`
 	OMDb    OMDb               `envPrefix:"OMDB_"`
+	Groq    Groq               `envPrefix:"GROQ_"`
+}
+
+// Groq powers the chat assistant (free key at console.groq.com). Without an
+// API key it answers with canned demo recommendations.
+type Groq struct {
+	APIKey string `env:"API_KEY"`
+	// Needs tool calling and JSON mode. (Groq has retired its Llama 3 chat
+	// models: llama3-8b-8192, then llama-3.1-8b-instant.)
+	Model     string `env:"MODEL" envDefault:"openai/gpt-oss-20b"`
+	BaseURL   string `env:"BASE_URL" envDefault:"https://api.groq.com/openai/v1"`
+	MaxTokens int    `env:"MAX_TOKENS" envDefault:"1000"` // per completion; bounds usage
 }
 
 // OMDb supplies IMDb ratings. Without an API key (free at omdbapi.com) movies

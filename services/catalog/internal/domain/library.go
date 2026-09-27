@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -12,15 +13,43 @@ const (
 )
 
 var (
-	// ErrMovieNotStored: the movie is not in the movies table yet, so a
-	// library row cannot reference it. The service stores it and retries.
+	// ErrMovieNotStored: the title is not in its table (movies or tv_shows)
+	// yet, so a library row cannot reference it. The service stores it and
+	// retries.
 	ErrMovieNotStored = errors.New("movie not stored")
 	// ErrUnknownUser: the authenticated user id has no account (deleted
 	// after the token was issued).
 	ErrUnknownUser = errors.New("unknown user")
 )
 
-// WatchlistItem is one movie on a user's list ("My List").
+// TitleRef names a title in a user's library: a movie or a TV series (TMDB
+// numbers them separately, so the id alone is ambiguous).
+type TitleRef struct {
+	MediaType string // MediaMovie or MediaTV
+	ID        int
+}
+
+// MovieRef is a movie's reference (what a bare id meant before series).
+func MovieRef(id int) TitleRef { return TitleRef{MediaType: MediaMovie, ID: id} }
+
+// ParseTitleRef reads a request's (media_type, id); an empty media_type is a
+// movie, as before series.
+func ParseTitleRef(mediaType string, id int) (TitleRef, error) {
+	if mediaType == "" {
+		mediaType = MediaMovie
+	}
+	ref := TitleRef{MediaType: mediaType, ID: id}
+	switch {
+	case mediaType != MediaMovie && mediaType != MediaTV:
+		return ref, fmt.Errorf("%w: media_type must be %q or %q", ErrInvalidInput, MediaMovie, MediaTV)
+	case id < 1:
+		return ref, fmt.Errorf("%w: id must be positive", ErrInvalidInput)
+	}
+	return ref, nil
+}
+
+// WatchlistItem is one title on a user's list ("My List"); Movie.MediaType
+// says whether it is a movie or a series.
 type WatchlistItem struct {
 	Movie   Movie     `json:"movie"`
 	AddedAt time.Time `json:"added_at"`
@@ -38,13 +67,13 @@ type UserRating struct {
 // Returned movies carry the summary fields only (what a card renders).
 type LibraryStore interface {
 	// AddToWatchlist is idempotent: re-adding keeps the original added_at.
-	AddToWatchlist(ctx context.Context, userID string, movieID int) (WatchlistItem, error)
-	// RemoveFromWatchlist is idempotent: removing an absent movie is not an error.
-	RemoveFromWatchlist(ctx context.Context, userID string, movieID int) error
+	AddToWatchlist(ctx context.Context, userID string, ref TitleRef) (WatchlistItem, error)
+	// RemoveFromWatchlist is idempotent: removing an absent title is not an error.
+	RemoveFromWatchlist(ctx context.Context, userID string, ref TitleRef) error
 	// GetUserWatchlist returns the list, most recently added first.
 	GetUserWatchlist(ctx context.Context, userID string) ([]WatchlistItem, error)
 	// UpsertUserRating creates the rating or replaces its score.
-	UpsertUserRating(ctx context.Context, userID string, movieID, rating int) (UserRating, error)
+	UpsertUserRating(ctx context.Context, userID string, ref TitleRef, rating int) (UserRating, error)
 	// GetUserRatings returns the ratings, most recently changed first.
 	GetUserRatings(ctx context.Context, userID string) ([]UserRating, error)
 }

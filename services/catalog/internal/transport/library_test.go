@@ -29,29 +29,29 @@ const (
 // memLibrary is an in-memory LibraryStore keyed by user.
 type memLibrary struct {
 	mu      sync.Mutex
-	list    map[string]map[int]time.Time
-	ratings map[string]map[int]int
+	list    map[string]map[domain.TitleRef]time.Time
+	ratings map[string]map[domain.TitleRef]int
 }
 
 func newMem() *memLibrary {
-	return &memLibrary{list: map[string]map[int]time.Time{}, ratings: map[string]map[int]int{}}
+	return &memLibrary{list: map[string]map[domain.TitleRef]time.Time{}, ratings: map[string]map[domain.TitleRef]int{}}
 }
 
-func (m *memLibrary) AddToWatchlist(_ context.Context, u string, id int) (domain.WatchlistItem, error) {
+func (m *memLibrary) AddToWatchlist(_ context.Context, u string, id domain.TitleRef) (domain.WatchlistItem, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if u == gone {
 		return domain.WatchlistItem{}, domain.ErrUnknownUser
 	}
 	if m.list[u] == nil {
-		m.list[u] = map[int]time.Time{}
+		m.list[u] = map[domain.TitleRef]time.Time{}
 	}
 	if _, ok := m.list[u][id]; !ok {
 		m.list[u][id] = time.Now()
 	}
-	return domain.WatchlistItem{Movie: domain.Movie{ID: id, Title: "M"}, AddedAt: m.list[u][id]}, nil
+	return domain.WatchlistItem{Movie: domain.Movie{ID: id.ID, MediaType: id.MediaType, Title: "M"}, AddedAt: m.list[u][id]}, nil
 }
-func (m *memLibrary) RemoveFromWatchlist(_ context.Context, u string, id int) error {
+func (m *memLibrary) RemoveFromWatchlist(_ context.Context, u string, id domain.TitleRef) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.list[u], id)
@@ -62,32 +62,32 @@ func (m *memLibrary) GetUserWatchlist(_ context.Context, u string) ([]domain.Wat
 	defer m.mu.Unlock()
 	items := []domain.WatchlistItem{}
 	for id, at := range m.list[u] {
-		items = append(items, domain.WatchlistItem{Movie: domain.Movie{ID: id}, AddedAt: at})
+		items = append(items, domain.WatchlistItem{Movie: domain.Movie{ID: id.ID, MediaType: id.MediaType}, AddedAt: at})
 	}
 	return items, nil
 }
-func (m *memLibrary) UpsertUserRating(_ context.Context, u string, id, r int) (domain.UserRating, error) {
+func (m *memLibrary) UpsertUserRating(_ context.Context, u string, id domain.TitleRef, r int) (domain.UserRating, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.ratings[u] == nil {
-		m.ratings[u] = map[int]int{}
+		m.ratings[u] = map[domain.TitleRef]int{}
 	}
 	m.ratings[u][id] = r
-	return domain.UserRating{Movie: domain.Movie{ID: id}, Rating: r}, nil
+	return domain.UserRating{Movie: domain.Movie{ID: id.ID, MediaType: id.MediaType}, Rating: r}, nil
 }
 func (m *memLibrary) GetUserRatings(_ context.Context, u string) ([]domain.UserRating, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	items := []domain.UserRating{}
 	for id, r := range m.ratings[u] {
-		items = append(items, domain.UserRating{Movie: domain.Movie{ID: id}, Rating: r})
+		items = append(items, domain.UserRating{Movie: domain.Movie{ID: id.ID, MediaType: id.MediaType}, Rating: r})
 	}
 	return items, nil
 }
 
 type storeAll struct{}
 
-func (storeAll) EnsureStored(context.Context, int) error { return nil }
+func (storeAll) EnsureTitleStored(context.Context, domain.TitleRef) error { return nil }
 
 func newServer(t *testing.T) (*httptest.Server, *memLibrary) {
 	mem := newMem()
@@ -169,8 +169,8 @@ func TestRatingUpsert(t *testing.T) {
 			t.Fatalf("rate %d -> %d %v", r, code, item)
 		}
 	}
-	if mem.ratings[alice][7] != 9 {
-		t.Fatalf("stored rating = %d, want 9 (the latest)", mem.ratings[alice][7])
+	if mem.ratings[alice][domain.MovieRef(7)] != 9 {
+		t.Fatalf("stored rating = %d, want 9 (the latest)", mem.ratings[alice][domain.MovieRef(7)])
 	}
 	_, got := call(t, srv, "GET", "/api/v1/ratings", alice, "")
 	if items := got["items"].([]any); len(items) != 1 {
@@ -203,5 +203,38 @@ func TestDeletedAccountIsUnauthorized(t *testing.T) {
 	srv, _ := newServer(t)
 	if code, _ := call(t, srv, "POST", "/api/v1/watchlist", gone, `{"movie_id":1}`); code != http.StatusUnauthorized {
 		t.Fatalf("-> %d, want 401", code)
+	}
+}
+
+func TestSeriesInTheLibraryRoutes(t *testing.T) {
+	srv, mem := newServer(t)
+	code, item := call(t, srv, "POST", "/api/v1/watchlist", alice, `{"media_type":"tv","movie_id":1399}`)
+	if movie, _ := item["movie"].(map[string]any); code != http.StatusOK || movie["media_type"] != "tv" {
+		t.Fatalf("add series -> %d %v", code, item)
+	}
+	if code, _ := call(t, srv, "POST", "/api/v1/watchlist", alice, `{"movie_id":1399}`); code != http.StatusOK {
+		t.Fatalf("add movie 1399 -> %d", code)
+	}
+	if len(mem.list[alice]) != 2 {
+		t.Fatalf("series and movie 1399 should be two entries: %v", mem.list[alice])
+	}
+	if code, _ := call(t, srv, "DELETE", "/api/v1/watchlist/1399?media_type=tv", alice, ""); code != http.StatusNoContent {
+		t.Fatalf("remove series -> %d", code)
+	}
+	if _, ok := mem.list[alice][domain.MovieRef(1399)]; !ok || len(mem.list[alice]) != 1 {
+		t.Fatalf("removing the series touched the movie: %v", mem.list[alice])
+	}
+	if code, _ := call(t, srv, "PUT", "/api/v1/ratings", alice, `{"media_type":"tv","movie_id":1399,"rating":9}`); code != http.StatusOK ||
+		mem.ratings[alice][domain.TitleRef{MediaType: domain.MediaTV, ID: 1399}] != 9 {
+		t.Fatalf("rate series -> %d %v", code, mem.ratings[alice])
+	}
+	for _, c := range [][3]string{
+		{"POST", "/api/v1/watchlist", `{"media_type":"podcast","movie_id":1}`},
+		{"DELETE", "/api/v1/watchlist/1?media_type=podcast", ""},
+		{"PUT", "/api/v1/ratings", `{"media_type":"book","movie_id":1,"rating":5}`},
+	} {
+		if code, _ := call(t, srv, c[0], c[1], alice, c[2]); code != http.StatusBadRequest {
+			t.Errorf("%s %s -> %d, want 400", c[0], c[1], code)
+		}
 	}
 }

@@ -10,60 +10,144 @@ import (
 
 // TMDB response shapes, kept private so the domain stays independent of them.
 
+type genresWire []struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+func (w genresWire) toDomain() []domain.Genre {
+	var out []domain.Genre
+	for _, g := range w {
+		out = append(out, domain.Genre{ID: g.ID, Name: g.Name})
+	}
+	return out
+}
+
+type videosWire struct {
+	Results []struct {
+		Key  string `json:"key"`
+		Type string `json:"type"`
+		Site string `json:"site"`
+	} `json:"results"`
+}
+
+// trailer is the first YouTube trailer, if any.
+func (w videosWire) trailer() string {
+	for _, v := range w.Results {
+		if v.Site == "YouTube" && v.Type == "Trailer" {
+			return v.Key
+		}
+	}
+	return ""
+}
+
+type creditsWire struct {
+	Cast []any `json:"cast"`
+}
+
+// castJSON passes the cast through as TMDB sends it ("" when empty).
+func (w creditsWire) castJSON() string {
+	if len(w.Cast) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(w.Cast)
+	return string(b)
+}
+
 type movieWire struct {
-	ID           int     `json:"id"`
-	Title        string  `json:"title"`
-	Overview     string  `json:"overview"`
-	PosterPath   string  `json:"poster_path"`
-	BackdropPath string  `json:"backdrop_path"`
-	ReleaseDate  string  `json:"release_date"`
-	VoteAverage  float64 `json:"vote_average"`
-	VoteCount    int     `json:"vote_count"`
-	Tagline      string  `json:"tagline"`
-	Runtime      int     `json:"runtime"`
-	IMDbID       string  `json:"imdb_id"`
-	Genres       []struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
-	} `json:"genres"`
-	Videos struct {
-		Results []struct {
-			Key  string `json:"key"`
-			Type string `json:"type"`
-			Site string `json:"site"`
-		} `json:"results"`
-	} `json:"videos"`
-	Credits struct {
-		Cast []any `json:"cast"`
-	} `json:"credits"`
+	ID           int         `json:"id"`
+	Title        string      `json:"title"`
+	Overview     string      `json:"overview"`
+	PosterPath   string      `json:"poster_path"`
+	BackdropPath string      `json:"backdrop_path"`
+	ReleaseDate  string      `json:"release_date"`
+	VoteAverage  float64     `json:"vote_average"`
+	VoteCount    int         `json:"vote_count"`
+	Tagline      string      `json:"tagline"`
+	Runtime      int         `json:"runtime"`
+	IMDbID       string      `json:"imdb_id"`
+	Genres       genresWire  `json:"genres"`
+	Videos       videosWire  `json:"videos"`
+	Credits      creditsWire `json:"credits"`
 }
 
 func (w movieWire) toDomain() domain.Movie {
-	m := domain.Movie{
-		ID: w.ID, Title: w.Title, Overview: w.Overview, PosterPath: w.PosterPath,
+	return domain.Movie{
+		ID: w.ID, MediaType: domain.MediaMovie, Title: w.Title, Overview: w.Overview, PosterPath: w.PosterPath,
 		BackdropPath: w.BackdropPath,
 		ReleaseDate:  w.ReleaseDate, VoteAverage: w.VoteAverage, VoteCount: w.VoteCount,
 		Tagline: w.Tagline, Runtime: w.Runtime, IMDbID: w.IMDbID,
+		Genres: w.Genres.toDomain(), TrailerKey: w.Videos.trailer(), CastJSON: w.Credits.castJSON(),
 	}
-	for _, g := range w.Genres {
-		m.Genres = append(m.Genres, domain.Genre{ID: g.ID, Name: g.Name})
-	}
+}
 
-	// Find YouTube trailer
-	for _, v := range w.Videos.Results {
-		if v.Site == "YouTube" && v.Type == "Trailer" {
-			m.TrailerKey = v.Key
-			break
-		}
-	}
+// tvWire is a TV series (lists and /tv/{id}); TMDB names its fields differently.
+type tvWire struct {
+	ID               int         `json:"id"`
+	Name             string      `json:"name"`
+	Overview         string      `json:"overview"`
+	PosterPath       string      `json:"poster_path"`
+	BackdropPath     string      `json:"backdrop_path"`
+	FirstAirDate     string      `json:"first_air_date"`
+	LastAirDate      string      `json:"last_air_date"`
+	VoteAverage      float64     `json:"vote_average"`
+	VoteCount        int         `json:"vote_count"`
+	Tagline          string      `json:"tagline"`
+	Status           string      `json:"status"`
+	NumberOfSeasons  int         `json:"number_of_seasons"`
+	NumberOfEpisodes int         `json:"number_of_episodes"`
+	EpisodeRunTime   []int       `json:"episode_run_time"`
+	Genres           genresWire  `json:"genres"`
+	Videos           videosWire  `json:"videos"`
+	Credits          creditsWire `json:"credits"`
+	Networks         []struct {
+		Name string `json:"name"`
+	} `json:"networks"`
+	CreatedBy []struct {
+		Name string `json:"name"`
+	} `json:"created_by"`
+	ExternalIDs struct {
+		IMDbID string `json:"imdb_id"`
+	} `json:"external_ids"`
+}
 
-	// Encode cast
-	if len(w.Credits.Cast) > 0 {
-		b, _ := json.Marshal(w.Credits.Cast)
-		m.CastJSON = string(b)
+func (w tvWire) toDomain() domain.Movie {
+	m := domain.Movie{
+		ID: w.ID, MediaType: domain.MediaTV, Title: w.Name, Overview: w.Overview, PosterPath: w.PosterPath,
+		BackdropPath: w.BackdropPath, ReleaseDate: w.FirstAirDate, VoteAverage: w.VoteAverage, VoteCount: w.VoteCount,
+		Tagline: w.Tagline, IMDbID: w.ExternalIDs.IMDbID,
+		Genres: w.Genres.toDomain(), TrailerKey: w.Videos.trailer(), CastJSON: w.Credits.castJSON(),
+		TVDetails: domain.TVDetails{
+			NumberOfSeasons: w.NumberOfSeasons, NumberOfEpisodes: w.NumberOfEpisodes,
+			Status: w.Status, LastAirDate: w.LastAirDate,
+		},
 	}
-
+	if len(w.EpisodeRunTime) > 0 {
+		m.Runtime = w.EpisodeRunTime[0]
+	}
+	for _, n := range w.Networks {
+		m.Networks = append(m.Networks, n.Name)
+	}
+	for _, c := range w.CreatedBy {
+		m.Creators = append(m.Creators, c.Name)
+	}
 	return m
+}
+
+type tvPageWire struct {
+	Page         int      `json:"page"`
+	TotalPages   int      `json:"total_pages"`
+	TotalResults int      `json:"total_results"`
+	Results      []tvWire `json:"results"`
+}
+
+func (w tvPageWire) toDomain() domain.MoviePage {
+	p := domain.MoviePage{Page: w.Page, TotalPages: w.TotalPages, TotalResults: w.TotalResults}
+	p.Results = make([]domain.Movie, 0, len(w.Results))
+	for _, s := range w.Results {
+		p.Results = append(p.Results, s.toDomain())
+	}
+	return p
 }
 
 type popularResponse struct {

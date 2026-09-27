@@ -24,31 +24,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx    ON auth.users (lower(
 -- The Redis read model is derived from these tables and can be rebuilt.
 -- ---------------------------------------------------------------------------
 
--- One rating per (movie, user); re-rating replaces the score.
+-- One rating per (title, user); re-rating replaces the score. A title is a
+-- movie or a TV series: media_type says which, since TMDB numbers them
+-- separately (movie 1399 and tv 1399 are different titles). movie_id is the
+-- TMDB id of either (the name predates series).
 CREATE TABLE IF NOT EXISTS interaction.ratings (
+    media_type  TEXT        NOT NULL DEFAULT 'movie' CHECK (media_type IN ('movie', 'tv')),
     movie_id    INTEGER     NOT NULL,
     user_id     TEXT        NOT NULL,
     score       SMALLINT    NOT NULL CHECK (score BETWEEN 1 AND 10),
     event_id    UUID        NOT NULL,
     occurred_at TIMESTAMPTZ NOT NULL,           -- when the user acted (event time)
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (movie_id, user_id)
+    PRIMARY KEY (media_type, movie_id, user_id)
 );
 
 -- Running aggregate, updated in the same transaction as the rating so it is
 -- O(1) to read. `version` increments on every change and lets the Redis read
 -- model reject out-of-order writes.
 CREATE TABLE IF NOT EXISTS interaction.movie_rating_stats (
-    movie_id    INTEGER     PRIMARY KEY,
+    media_type  TEXT        NOT NULL DEFAULT 'movie' CHECK (media_type IN ('movie', 'tv')),
+    movie_id    INTEGER     NOT NULL,
     total_score BIGINT      NOT NULL DEFAULT 0,
     vote_count  BIGINT      NOT NULL DEFAULT 0,
     version     BIGINT      NOT NULL DEFAULT 0,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (media_type, movie_id)
 );
 
 -- event_id is the primary key: redelivered messages are ignored (idempotent).
 CREATE TABLE IF NOT EXISTS interaction.comments (
     event_id    UUID        PRIMARY KEY,
+    media_type  TEXT        NOT NULL DEFAULT 'movie' CHECK (media_type IN ('movie', 'tv')),
     movie_id    INTEGER     NOT NULL,
     user_id     TEXT        NOT NULL,
     body        TEXT        NOT NULL CHECK (char_length(body) BETWEEN 1 AND 1000),
@@ -56,8 +63,33 @@ CREATE TABLE IF NOT EXISTS interaction.comments (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS comments_movie_recent_idx
-    ON interaction.comments (movie_id, occurred_at DESC);
+-- Databases created before series: add media_type (existing rows are movies)
+-- and widen the keys to (media_type, movie_id, ...). Idempotent.
+ALTER TABLE interaction.ratings
+    ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'movie' CHECK (media_type IN ('movie', 'tv'));
+ALTER TABLE interaction.movie_rating_stats
+    ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'movie' CHECK (media_type IN ('movie', 'tv'));
+ALTER TABLE interaction.comments
+    ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'movie' CHECK (media_type IN ('movie', 'tv'));
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.key_column_usage
+                   WHERE table_schema = 'interaction' AND table_name = 'ratings'
+                     AND constraint_name = 'ratings_pkey' AND column_name = 'media_type') THEN
+        ALTER TABLE interaction.ratings DROP CONSTRAINT ratings_pkey,
+            ADD PRIMARY KEY (media_type, movie_id, user_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.key_column_usage
+                   WHERE table_schema = 'interaction' AND table_name = 'movie_rating_stats'
+                     AND constraint_name = 'movie_rating_stats_pkey' AND column_name = 'media_type') THEN
+        ALTER TABLE interaction.movie_rating_stats DROP CONSTRAINT movie_rating_stats_pkey,
+            ADD PRIMARY KEY (media_type, movie_id);
+    END IF;
+END $$;
+
+DROP INDEX IF EXISTS interaction.comments_movie_recent_idx;
+CREATE INDEX IF NOT EXISTS comments_title_recent_idx
+    ON interaction.comments (media_type, movie_id, occurred_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Transactional outbox. The HTTP write path only INSERTs here; the relay
@@ -100,6 +132,39 @@ CREATE TABLE IF NOT EXISTS movies (
     runtime INT,
     genres JSONB,
     fetched_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ---------------------------------------------------------------------------
+-- Catalog service: TV series (migration 0007).
+-- ---------------------------------------------------------------------------
+-- L2 cache of TMDB TV series, the counterpart of movies (media_type "tv").
+-- A table of its own rather than a media_type column on movies: TMDB numbers
+-- movies and series separately (movie 1399 and tv 1399 are different titles),
+-- and the user library's foreign keys point at movies only.
+-- Dates are TMDB's (first_air_date is what lists call the release date);
+-- genres, networks and creators are JSON arrays.
+CREATE TABLE IF NOT EXISTS tv_shows (
+    id                 INT PRIMARY KEY,
+    name               TEXT NOT NULL,
+    overview           TEXT NOT NULL,
+    poster_path        TEXT,
+    backdrop_path      TEXT,
+    trailer_key        TEXT,
+    first_air_date     TEXT,
+    last_air_date      TEXT,
+    vote_average       FLOAT,
+    vote_count         INT,
+    cast_json          JSONB,
+    tagline            TEXT,
+    episode_runtime    INT,
+    genres             JSONB NOT NULL DEFAULT '[]',
+    imdb_id            TEXT,
+    status             TEXT,
+    number_of_seasons  INT,
+    number_of_episodes INT,
+    networks           JSONB NOT NULL DEFAULT '[]',
+    creators           JSONB NOT NULL DEFAULT '[]',
+    fetched_at         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- ---------------------------------------------------------------------------
@@ -178,3 +243,59 @@ CREATE TABLE IF NOT EXISTS library.user_ratings (
     CONSTRAINT user_ratings_movie_fk FOREIGN KEY (movie_id) REFERENCES public.movies (id)
 );
 CREATE INDEX IF NOT EXISTS user_ratings_movie_idx ON library.user_ratings (movie_id);
+
+-- Series in the library (migration 0008).
+-- The library holds TV series too (media_type 'tv'). TMDB numbers movies and
+-- series separately, so a library row is (user, media_type, movie_id), where
+-- movie_id is the TMDB id of either (the name predates series).
+-- Each media type keeps a real foreign key, on a generated column that is
+-- NULL for the other type: movie_ref -> movies, tv_ref -> tv_shows. So a
+-- list can always be rendered from Postgres, and a cached title that is on
+-- someone's list cannot be deleted. Existing rows are movies. Idempotent.
+ALTER TABLE library.watchlists
+    ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'movie' CHECK (media_type IN ('movie', 'tv'));
+ALTER TABLE library.user_ratings
+    ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'movie' CHECK (media_type IN ('movie', 'tv'));
+ALTER TABLE library.watchlists
+    ADD COLUMN IF NOT EXISTS movie_ref INTEGER GENERATED ALWAYS AS (CASE WHEN media_type = 'movie' THEN movie_id END) STORED,
+    ADD COLUMN IF NOT EXISTS tv_ref    INTEGER GENERATED ALWAYS AS (CASE WHEN media_type = 'tv' THEN movie_id END) STORED;
+ALTER TABLE library.user_ratings
+    ADD COLUMN IF NOT EXISTS movie_ref INTEGER GENERATED ALWAYS AS (CASE WHEN media_type = 'movie' THEN movie_id END) STORED,
+    ADD COLUMN IF NOT EXISTS tv_ref    INTEGER GENERATED ALWAYS AS (CASE WHEN media_type = 'tv' THEN movie_id END) STORED;
+
+DO $$
+DECLARE
+    tbl TEXT;
+    pfx TEXT;
+BEGIN
+    FOREACH tbl IN ARRAY ARRAY['watchlists', 'user_ratings'] LOOP
+        pfx := tbl;
+        -- The movie foreign key moves from movie_id to movie_ref.
+        IF EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conrelid = ('library.' || tbl)::regclass AND conname = pfx || '_movie_fk'
+                     AND pg_get_constraintdef(oid) LIKE 'FOREIGN KEY (movie_id)%') THEN
+            EXECUTE format('ALTER TABLE library.%I DROP CONSTRAINT %I', tbl, pfx || '_movie_fk');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                       WHERE conrelid = ('library.' || tbl)::regclass AND conname = pfx || '_movie_fk') THEN
+            EXECUTE format('ALTER TABLE library.%I ADD CONSTRAINT %I FOREIGN KEY (movie_ref) REFERENCES public.movies (id)',
+                           tbl, pfx || '_movie_fk');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                       WHERE conrelid = ('library.' || tbl)::regclass AND conname = pfx || '_tv_fk') THEN
+            EXECUTE format('ALTER TABLE library.%I ADD CONSTRAINT %I FOREIGN KEY (tv_ref) REFERENCES public.tv_shows (id)',
+                           tbl, pfx || '_tv_fk');
+        END IF;
+        -- The key includes the media type.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.key_column_usage
+                       WHERE table_schema = 'library' AND table_name = tbl
+                         AND constraint_name = tbl || '_pkey' AND column_name = 'media_type') THEN
+            EXECUTE format('ALTER TABLE library.%I DROP CONSTRAINT %I, ADD PRIMARY KEY (user_id, media_type, movie_id)',
+                           tbl, tbl || '_pkey');
+        END IF;
+    END LOOP;
+END $$;
+
+CREATE INDEX IF NOT EXISTS watchlists_tv_idx ON library.watchlists (tv_ref) WHERE tv_ref IS NOT NULL;
+CREATE INDEX IF NOT EXISTS user_ratings_tv_idx ON library.user_ratings (tv_ref) WHERE tv_ref IS NOT NULL;
+
