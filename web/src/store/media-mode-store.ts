@@ -7,7 +7,7 @@ import { persist } from "zustand/middleware";
 import type { MediaType } from "@/types/movie";
 
 /**
- * The app-wide mode, switched by the logo: MovieApp ("movie") or SeriesApp
+ * The app-wide mode, switched by the logo: KinoCut ("movie") or KinoShow
  * ("tv"). Home, Discover and Search follow it; a title's own page doesn't
  * (its URL says which it is). Kept in localStorage.
  */

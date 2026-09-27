@@ -3,7 +3,7 @@
 import { useId, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { Clapperboard, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Clapperboard, Eye, EyeOff, Loader2, Tv } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { usePopularMovies } from "@/hooks/queries";
 import { useLogin, useRegister } from "@/hooks/use-auth";
 import { useT, type MessageKey } from "@/i18n";
 import { useAuthPrompt, type AuthMode as Mode } from "@/store/auth-prompt-store";
+import { useMediaModeStore } from "@/store/media-mode-store";
 
 const COPY = {
   "sign-in": { title: "auth.signInTitle", description: "auth.signInDescription" },
@@ -120,14 +121,17 @@ const slide = {
   exit: (m: Mode) => ({ opacity: 0, x: m === "register" ? -32 : 32 }),
 };
 
+/** The brand, in the app's current mode: KinoCut or KinoShow. */
 function Logo({ className = "" }: { className?: string }) {
+  const tv = useMediaModeStore((s) => s.mode) === "tv";
+  const Icon = tv ? Tv : Clapperboard;
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       <span className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-        <Clapperboard className="size-5" strokeWidth={2.25} />
+        <Icon className="size-5" strokeWidth={2.25} />
       </span>
       <span className="text-xl font-bold tracking-tight text-white">
-        Movie<span className="text-primary">App</span>
+        Kino<span className="text-primary">{tv ? "Show" : "Cut"}</span>
       </span>
     </div>
   );

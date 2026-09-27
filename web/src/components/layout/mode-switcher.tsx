@@ -12,9 +12,10 @@ import { useMediaMode, useMediaModeStore } from "@/store/media-mode-store";
 // place; anywhere else (a person, My List...) it takes you home.
 const MODE_PAGES = ["/", "/discover", "/search"];
 
+// The brand: "Kino" (the Nordic word for cinema) plus the mode's suffix.
 const BRAND = {
-  movie: { icon: Clapperboard, word: "Movie", next: "mode.series" },
-  tv: { icon: Tv, word: "Series", next: "mode.movies" },
+  movie: { icon: Clapperboard, suffix: "Cut", next: "mode.series" },
+  tv: { icon: Tv, suffix: "Show", next: "mode.movies" },
 } as const;
 
 const FLIP = {
@@ -26,7 +27,8 @@ const FLIP = {
 
 /**
  * The brand logo, which is also the app's Movies <-> Series switch:
- * MovieApp (clapperboard) and SeriesApp (TV) flip into each other. On hover
+ * KinoCut (clapperboard) and KinoShow (TV). "Kino" stays; the icon and the
+ * suffix flip into each other. On hover
  * a pill outline and a swap badge show it can be clicked; two dots mark the
  * active mode.
  */
@@ -47,7 +49,7 @@ export function ModeSwitcher({ className }: { className?: string }) {
         toggle();
         if (!MODE_PAGES.includes(pathname)) router.push("/");
       }}
-      aria-label={t("mode.switchTo", { brand: brand.word, next })}
+      aria-label={t("mode.switchTo", { brand: `Kino${brand.suffix}`, next })}
       aria-pressed={mode === "tv"}
       title={t("mode.switchTitle", { next })}
       className={cn(
@@ -73,14 +75,12 @@ export function ModeSwitcher({ className }: { className?: string }) {
       </span>
 
       <span className="relative flex items-baseline text-lg font-bold tracking-tight">
+        <span>Kino</span>
         <AnimatePresence mode="popLayout" initial={false}>
-          <motion.span key={mode + "-word"} {...FLIP} className="inline-block">
-            {brand.word}
+          <motion.span key={mode + "-word"} {...FLIP} className="inline-block text-primary">
+            {brand.suffix}
           </motion.span>
         </AnimatePresence>
-        <motion.span layout="position" className="text-primary">
-          App
-        </motion.span>
       </span>
 
       {/* Which mode is on: movie dot, series dot. */}

@@ -43,9 +43,7 @@ export const tr: Dictionary = {
     switchLanguage: "Dili {lang} olarak değiştir",
   },
   mode: {
-    movieWord: "Movie",
-    seriesWord: "Series",
-    switchTo: "{brand}App. {next} moduna geç",
+    switchTo: "{brand}. {next} moduna geç",
     switchTitle: "{next} moduna geç",
     movies: "Filmler",
     series: "Diziler",

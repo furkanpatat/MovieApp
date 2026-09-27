@@ -18,9 +18,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// KinoCut (movies) ⇄ KinoShow (series): "Kino" is the Nordic word for cinema.
 export const metadata: Metadata = {
-  title: "MovieApp",
-  description: "A cinematic, real-time movie discovery and watch-party app.",
+  title: "KinoCut",
+  description: "KinoCut & KinoShow: discover movies and series, and watch them together in real time.",
 };
 
 // `modal` is the @modal parallel route: a movie or series opened from within

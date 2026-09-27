@@ -42,9 +42,7 @@ export const en = {
     switchLanguage: "Switch language to {lang}",
   },
   mode: {
-    movieWord: "Movie",
-    seriesWord: "Series",
-    switchTo: "{brand}App. Switch to {next}",
+    switchTo: "{brand}. Switch to {next}",
     switchTitle: "Switch to {next}",
     movies: "Movies",
     series: "Series",
