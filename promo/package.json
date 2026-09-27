@@ -1,0 +1,12 @@
+{
+  "name": "kino-promo",
+  "private": true,
+  "type": "module",
+  "description": "Generates the KinoCut ⇄ KinoShow launch video from the running app (see README.md).",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}
