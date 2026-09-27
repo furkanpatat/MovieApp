@@ -141,7 +141,7 @@ func TestBrokerOutageDoesNotLoseWrites(t *testing.T) {
 			t.Fatalf("missing %s in %s", want, body)
 		}
 	}
-	stats, _ := repo.GetStats(ctxb, 42)
+	stats, _ := repo.GetStats(ctxb, domain.Movie(42))
 	if stats.VoteCount != 2 || stats.TotalScore != 12 {
 		t.Fatalf("postgres stats %+v", stats)
 	}

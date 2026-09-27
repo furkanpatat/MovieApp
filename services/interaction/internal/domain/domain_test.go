@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -55,5 +56,26 @@ func TestCommentValidation(t *testing.T) {
 	e.Text = strings.Repeat("ş", 1000) // counted in runes, not bytes
 	if err := e.Validate(); err != nil {
 		t.Errorf("1000 multibyte runes should be valid: %v", err)
+	}
+}
+
+func TestEventsWithoutMediaTypeAreMovies(t *testing.T) {
+	var e domain.RatingSubmitted
+	if err := json.Unmarshal([]byte(`{"event_id":"e","movie_id":7,"user_id":"u","score":5}`), &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.Title() != domain.Movie(7) || e.Validate() != nil {
+		t.Fatalf("old event read as %+v", e.Title())
+	}
+	tv := domain.CommentAdded{EventID: "e", MediaType: domain.MediaTV, MovieID: 1399, UserID: "u", Text: "hi"}
+	if tv.Title() != (domain.Title{Media: domain.MediaTV, ID: 1399}) || tv.Validate() != nil {
+		t.Fatalf("tv event %+v", tv.Title())
+	}
+	tv.MediaType = "podcast"
+	if err := tv.Validate(); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("unknown media type: %v", err)
+	}
+	if domain.Movie(1399).String() == (domain.Title{Media: domain.MediaTV, ID: 1399}).String() {
+		t.Fatal("titles must be distinct across media types")
 	}
 }

@@ -28,7 +28,7 @@ var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 type memRepo struct {
 	mu       sync.Mutex
 	ratings  map[string]rated // "movie/user"
-	stats    map[int]domain.RatingStats
+	stats    map[domain.Title]domain.RatingStats
 	comments map[string]domain.CommentAdded
 	reads    atomic.Int32 // GetStats calls: proxy for "Postgres was consulted"
 	failSave error
@@ -39,7 +39,7 @@ type rated struct {
 }
 
 func newMemRepo() *memRepo {
-	return &memRepo{ratings: map[string]rated{}, stats: map[int]domain.RatingStats{}, comments: map[string]domain.CommentAdded{}}
+	return &memRepo{ratings: map[string]rated{}, stats: map[domain.Title]domain.RatingStats{}, comments: map[string]domain.CommentAdded{}}
 }
 
 func (r *memRepo) SaveRating(_ context.Context, e domain.RatingSubmitted) (domain.RatingStats, error) {
@@ -48,9 +48,9 @@ func (r *memRepo) SaveRating(_ context.Context, e domain.RatingSubmitted) (domai
 	if r.failSave != nil {
 		return domain.RatingStats{}, r.failSave
 	}
-	s := r.stats[e.MovieID]
-	s.MovieID = e.MovieID
-	k := fmt.Sprint(e.MovieID, "/", e.UserID)
+	s := r.stats[e.Title()]
+	s.Title = e.Title()
+	k := fmt.Sprint(e.Title(), "/", e.UserID)
 	old, exists := r.ratings[k]
 	switch {
 	case !exists:
@@ -63,7 +63,7 @@ func (r *memRepo) SaveRating(_ context.Context, e domain.RatingSubmitted) (domai
 	}
 	s.Version++
 	r.ratings[k] = rated{e.Score, e.OccurredAt}
-	r.stats[e.MovieID] = s
+	r.stats[e.Title()] = s
 	return s, nil
 }
 
@@ -77,21 +77,21 @@ func (r *memRepo) SaveComment(_ context.Context, e domain.CommentAdded) error {
 	return nil
 }
 
-func (r *memRepo) GetStats(_ context.Context, id int) (domain.RatingStats, error) {
+func (r *memRepo) GetStats(_ context.Context, id domain.Title) (domain.RatingStats, error) {
 	r.reads.Add(1)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := r.stats[id]
-	s.MovieID = id
+	s.Title = id
 	return s, nil
 }
 
-func (r *memRepo) RecentComments(_ context.Context, id, limit int) ([]domain.Comment, error) {
+func (r *memRepo) RecentComments(_ context.Context, id domain.Title, limit int) ([]domain.Comment, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := []domain.Comment{}
 	for _, e := range r.comments {
-		if e.MovieID == id {
+		if e.Title() == id {
 			out = append(out, domain.Comment{ID: e.EventID, UserID: e.UserID, Text: e.Text, CreatedAt: domain.NormalizeTime(e.OccurredAt)})
 		}
 	}
@@ -136,7 +136,7 @@ func rating(user string, score int, at time.Time) domain.RatingSubmitted {
 func TestCommandStoresEventInOutbox(t *testing.T) {
 	out := &fakeOutbox{}
 	cmd := service.NewCommand(out)
-	id, err := cmd.SubmitRating(context.Background(), 5, "alice", 9)
+	id, err := cmd.SubmitRating(context.Background(), domain.Movie(5), "alice", 9)
 	if err != nil || id == "" || len(out.msgs) != 1 {
 		t.Fatalf("id=%q err=%v msgs=%+v", id, err, out.msgs)
 	}
@@ -150,7 +150,7 @@ func TestCommandStoresEventInOutbox(t *testing.T) {
 		t.Fatalf("bad message %+v / event %+v", m, e)
 	}
 
-	id, err = cmd.SubmitComment(context.Background(), 5, "alice", "great")
+	id, err = cmd.SubmitComment(context.Background(), domain.Movie(5), "alice", "great")
 	if err != nil || len(out.msgs) != 2 || out.msgs[1].Type != domain.EventTypeCommentAdded || out.msgs[1].ID != id {
 		t.Fatalf("%v %+v", err, out.msgs)
 	}
@@ -159,10 +159,10 @@ func TestCommandStoresEventInOutbox(t *testing.T) {
 func TestCommandRejectsInvalidWithoutStoring(t *testing.T) {
 	out := &fakeOutbox{}
 	cmd := service.NewCommand(out)
-	if _, err := cmd.SubmitRating(context.Background(), 5, "alice", 11); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, err := cmd.SubmitRating(context.Background(), domain.Movie(5), "alice", 11); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatal(err)
 	}
-	if _, err := cmd.SubmitComment(context.Background(), 5, "alice", " "); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, err := cmd.SubmitComment(context.Background(), domain.Movie(5), "alice", " "); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatal(err)
 	}
 	if len(out.msgs) != 0 {
@@ -172,7 +172,7 @@ func TestCommandRejectsInvalidWithoutStoring(t *testing.T) {
 
 func TestCommandSurfacesStorageFailure(t *testing.T) {
 	cmd := service.NewCommand(&fakeOutbox{err: errors.New("postgres down")})
-	if _, err := cmd.SubmitRating(context.Background(), 1, "u", 5); err == nil || errors.Is(err, domain.ErrInvalidInput) {
+	if _, err := cmd.SubmitRating(context.Background(), domain.Movie(1), "u", 5); err == nil || errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -188,7 +188,7 @@ func TestFullFlowProjectThenQuery(t *testing.T) {
 	_ = e.proj.HandleComment(ctx, domain.CommentAdded{EventID: "c2", MovieID: 1, UserID: "b", Text: "second", OccurredAt: t0.Add(time.Second)})
 
 	reads := e.repo.reads.Load()
-	got, err := e.qry.GetInteractions(ctx, 1, 0)
+	got, err := e.qry.GetInteractions(ctx, domain.Movie(1), 0)
 	if err != nil || got.TotalVotes != 2 || got.AverageRating != 7 {
 		t.Fatalf("%+v %v", got, err)
 	}
@@ -206,7 +206,7 @@ func TestReRateReplacesScore(t *testing.T) {
 	t0 := time.Now().UTC()
 	_ = e.proj.HandleRating(ctx, rating("a", 4, t0))
 	_ = e.proj.HandleRating(ctx, rating("a", 10, t0.Add(time.Second)))
-	got, _ := e.qry.GetInteractions(ctx, 1, 0)
+	got, _ := e.qry.GetInteractions(ctx, domain.Movie(1), 0)
 	if got.TotalVotes != 1 || got.AverageRating != 10 {
 		t.Fatalf("%+v", got)
 	}
@@ -225,7 +225,7 @@ func TestRedeliveryIsIdempotent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, _ := e.qry.GetInteractions(ctx, 1, 0)
+	got, _ := e.qry.GetInteractions(ctx, domain.Movie(1), 0)
 	if got.TotalVotes != 1 || got.AverageRating != 7 || len(got.RecentComments) != 1 {
 		t.Fatalf("duplicates leaked into the read model: %+v", got)
 	}
@@ -237,7 +237,7 @@ func TestOutOfOrderOlderRatingIgnored(t *testing.T) {
 	t0 := time.Now().UTC()
 	_ = e.proj.HandleRating(ctx, rating("a", 9, t0.Add(time.Minute)))
 	_ = e.proj.HandleRating(ctx, rating("a", 2, t0)) // older event arrives late
-	got, _ := e.qry.GetInteractions(ctx, 1, 0)
+	got, _ := e.qry.GetInteractions(ctx, domain.Movie(1), 0)
 	if got.AverageRating != 9 {
 		t.Fatalf("stale event won: %+v", got)
 	}
@@ -253,26 +253,26 @@ func TestCacheMissRebuildsFromPostgresThenServesFromRedis(t *testing.T) {
 	e.mr.FlushAll() // Redis lost everything
 
 	before := e.repo.reads.Load()
-	got, err := e.qry.GetInteractions(ctx, 1, 0)
+	got, err := e.qry.GetInteractions(ctx, domain.Movie(1), 0)
 	if err != nil || got.TotalVotes != 1 || len(got.RecentComments) != 1 {
 		t.Fatalf("rebuild: %+v %v", got, err)
 	}
 	if e.repo.reads.Load() != before+1 {
 		t.Fatal("miss should consult Postgres once")
 	}
-	if _, _ = e.qry.GetInteractions(ctx, 1, 0); e.repo.reads.Load() != before+1 {
+	if _, _ = e.qry.GetInteractions(ctx, domain.Movie(1), 0); e.repo.reads.Load() != before+1 {
 		t.Fatal("second read should come from the rebuilt read model")
 	}
 }
 
 func TestUnknownMovieIsCachedAsEmpty(t *testing.T) {
 	e := newEnv(t)
-	got, err := e.qry.GetInteractions(context.Background(), 404, 0)
+	got, err := e.qry.GetInteractions(context.Background(), domain.Movie(404), 0)
 	if err != nil || got.TotalVotes != 0 || got.RecentComments == nil || len(got.RecentComments) != 0 {
 		t.Fatalf("%+v %v", got, err)
 	}
 	before := e.repo.reads.Load()
-	_, _ = e.qry.GetInteractions(context.Background(), 404, 0)
+	_, _ = e.qry.GetInteractions(context.Background(), domain.Movie(404), 0)
 	if e.repo.reads.Load() != before {
 		t.Fatal("empty result should be negatively cached")
 	}
@@ -291,7 +291,7 @@ func TestEventAfterRedisFlushRebuildsEverything(t *testing.T) {
 	if err := e.proj.HandleRating(ctx, rating("b", 5, t0.Add(time.Second))); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := e.qry.GetInteractions(ctx, 1, 0)
+	got, _ := e.qry.GetInteractions(ctx, domain.Movie(1), 0)
 	if got.TotalVotes != 1 || len(got.RecentComments) != 1 || got.RecentComments[0].Text != "old comment" {
 		t.Fatalf("old comment lost after flush: %+v", got)
 	}
@@ -313,7 +313,7 @@ func TestQueryFallsBackToPostgresWhenRedisDown(t *testing.T) {
 	ctx := context.Background()
 	_ = e.proj.HandleRating(ctx, rating("a", 8, time.Now().UTC()))
 	e.mr.Close()
-	got, err := e.qry.GetInteractions(ctx, 1, 0)
+	got, err := e.qry.GetInteractions(ctx, domain.Movie(1), 0)
 	if err != nil || got.TotalVotes != 1 {
 		t.Fatalf("Redis outage must not fail reads: %+v %v", got, err)
 	}
@@ -321,7 +321,7 @@ func TestQueryFallsBackToPostgresWhenRedisDown(t *testing.T) {
 
 func TestQueryInvalidMovie(t *testing.T) {
 	e := newEnv(t)
-	if _, err := e.qry.GetInteractions(context.Background(), 0, 0); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, err := e.qry.GetInteractions(context.Background(), domain.Movie(0), 0); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatal(err)
 	}
 }

@@ -26,17 +26,17 @@ func comment(i int) domain.Comment {
 func TestMissingModelIsReportedNotInvented(t *testing.T) {
 	m, _ := setup(t, 5)
 	ctx := context.Background()
-	if _, found, err := m.Get(ctx, 1, 5); found || err != nil {
+	if _, found, err := m.Get(ctx, domain.Movie(1), 5); found || err != nil {
 		t.Fatalf("found=%v err=%v", found, err)
 	}
 	// Writes against a missing model must ask for Init, not create a partial model.
-	if ok, err := m.ApplyRating(ctx, domain.RatingStats{MovieID: 1, TotalScore: 8, VoteCount: 1, Version: 1}); ok || err != nil {
+	if ok, err := m.ApplyRating(ctx, domain.RatingStats{Title: domain.Movie(1), TotalScore: 8, VoteCount: 1, Version: 1}); ok || err != nil {
 		t.Fatalf("ApplyRating on missing model: ok=%v err=%v", ok, err)
 	}
-	if ok, err := m.AddComment(ctx, 1, comment(1)); ok || err != nil {
+	if ok, err := m.AddComment(ctx, domain.Movie(1), comment(1)); ok || err != nil {
 		t.Fatalf("AddComment on missing model: ok=%v err=%v", ok, err)
 	}
-	if _, found, _ := m.Get(ctx, 1, 5); found {
+	if _, found, _ := m.Get(ctx, domain.Movie(1), 5); found {
 		t.Fatal("failed writes must not create a model")
 	}
 }
@@ -44,10 +44,10 @@ func TestMissingModelIsReportedNotInvented(t *testing.T) {
 func TestInitApplyAndGet(t *testing.T) {
 	m, _ := setup(t, 5)
 	ctx := context.Background()
-	if err := m.Init(ctx, domain.RatingStats{MovieID: 1, TotalScore: 15, VoteCount: 2, Version: 2}, []domain.Comment{comment(1), comment(2)}); err != nil {
+	if err := m.Init(ctx, domain.RatingStats{Title: domain.Movie(1), TotalScore: 15, VoteCount: 2, Version: 2}, []domain.Comment{comment(1), comment(2)}); err != nil {
 		t.Fatal(err)
 	}
-	got, found, err := m.Get(ctx, 1, 5)
+	got, found, err := m.Get(ctx, domain.Movie(1), 5)
 	if err != nil || !found || got.TotalVotes != 2 || got.AverageRating != 7.5 {
 		t.Fatalf("%+v %v %v", got, found, err)
 	}
@@ -55,10 +55,10 @@ func TestInitApplyAndGet(t *testing.T) {
 		t.Fatalf("order: %+v", got.RecentComments)
 	}
 
-	if ok, err := m.ApplyRating(ctx, domain.RatingStats{MovieID: 1, TotalScore: 25, VoteCount: 3, Version: 3}); !ok || err != nil {
+	if ok, err := m.ApplyRating(ctx, domain.RatingStats{Title: domain.Movie(1), TotalScore: 25, VoteCount: 3, Version: 3}); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
-	got, _, _ = m.Get(ctx, 1, 5)
+	got, _, _ = m.Get(ctx, domain.Movie(1), 5)
 	if got.TotalVotes != 3 || got.AverageRating < 8.33 || got.AverageRating > 8.34 {
 		t.Fatalf("%+v", got)
 	}
@@ -67,17 +67,17 @@ func TestInitApplyAndGet(t *testing.T) {
 func TestStaleAggregateCannotOverwriteNewer(t *testing.T) {
 	m, _ := setup(t, 5)
 	ctx := context.Background()
-	_ = m.Init(ctx, domain.RatingStats{MovieID: 1, TotalScore: 30, VoteCount: 3, Version: 5}, nil)
+	_ = m.Init(ctx, domain.RatingStats{Title: domain.Movie(1), TotalScore: 30, VoteCount: 3, Version: 5}, nil)
 
 	// A worker that read Postgres earlier arrives late with an older aggregate.
-	if ok, err := m.ApplyRating(ctx, domain.RatingStats{MovieID: 1, TotalScore: 20, VoteCount: 2, Version: 4}); !ok || err != nil {
+	if ok, err := m.ApplyRating(ctx, domain.RatingStats{Title: domain.Movie(1), TotalScore: 20, VoteCount: 2, Version: 4}); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
 	// ...and so does a slow rebuild.
-	if err := m.Init(ctx, domain.RatingStats{MovieID: 1, TotalScore: 10, VoteCount: 1, Version: 3}, nil); err != nil {
+	if err := m.Init(ctx, domain.RatingStats{Title: domain.Movie(1), TotalScore: 10, VoteCount: 1, Version: 3}, nil); err != nil {
 		t.Fatal(err)
 	}
-	got, _, _ := m.Get(ctx, 1, 5)
+	got, _, _ := m.Get(ctx, domain.Movie(1), 5)
 	if got.TotalVotes != 3 {
 		t.Fatalf("older version overwrote newer: %+v", got)
 	}
@@ -86,23 +86,23 @@ func TestStaleAggregateCannotOverwriteNewer(t *testing.T) {
 func TestCommentsTrimAndIdempotent(t *testing.T) {
 	m, mr := setup(t, 3)
 	ctx := context.Background()
-	_ = m.Init(ctx, domain.RatingStats{MovieID: 1}, nil)
+	_ = m.Init(ctx, domain.RatingStats{Title: domain.Movie(1)}, nil)
 	for i := 1; i <= 5; i++ {
-		if ok, err := m.AddComment(ctx, 1, comment(i)); !ok || err != nil {
+		if ok, err := m.AddComment(ctx, domain.Movie(1), comment(i)); !ok || err != nil {
 			t.Fatal(ok, err)
 		}
 	}
-	_, _ = m.AddComment(ctx, 1, comment(5)) // redelivery
-	_, _ = m.AddComment(ctx, 1, comment(5))
+	_, _ = m.AddComment(ctx, domain.Movie(1), comment(5)) // redelivery
+	_, _ = m.AddComment(ctx, domain.Movie(1), comment(5))
 
 	if n, _ := mr.ZMembers("interaction:1:comments"); len(n) != 3 {
 		t.Fatalf("retained %d, want 3 (trim + dedupe)", len(n))
 	}
-	got, _, _ := m.Get(ctx, 1, 100) // limit clamps to retained
+	got, _, _ := m.Get(ctx, domain.Movie(1), 100) // limit clamps to retained
 	if len(got.RecentComments) != 3 || got.RecentComments[0].ID != "c5" || got.RecentComments[2].ID != "c3" {
 		t.Fatalf("%+v", got.RecentComments)
 	}
-	got, _, _ = m.Get(ctx, 1, 2)
+	got, _, _ = m.Get(ctx, domain.Movie(1), 2)
 	if len(got.RecentComments) != 2 {
 		t.Fatalf("limit not applied: %d", len(got.RecentComments))
 	}
@@ -114,8 +114,8 @@ func TestInitTrimsToKeep(t *testing.T) {
 	for i := 1; i <= 6; i++ {
 		cs = append(cs, comment(i))
 	}
-	_ = m.Init(context.Background(), domain.RatingStats{MovieID: 1}, cs)
-	got, _, _ := m.Get(context.Background(), 1, 10)
+	_ = m.Init(context.Background(), domain.RatingStats{Title: domain.Movie(1)}, cs)
+	got, _, _ := m.Get(context.Background(), domain.Movie(1), 10)
 	if len(got.RecentComments) != 2 || got.RecentComments[0].ID != "c6" {
 		t.Fatalf("%+v", got.RecentComments)
 	}

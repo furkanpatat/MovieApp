@@ -79,7 +79,7 @@ func TestRatingAggregateRerateAndIdempotency(t *testing.T) {
 		t.Fatalf("stale event applied: %+v", s)
 	}
 
-	got, _ := repo.GetStats(ctx, movie)
+	got, _ := repo.GetStats(ctx, domain.Movie(movie))
 	if got != s {
 		t.Fatalf("GetStats %+v != %+v", got, s)
 	}
@@ -106,7 +106,7 @@ func TestConcurrentRatingsKeepAggregateExact(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	s, _ := repo.GetStats(ctx, movie)
+	s, _ := repo.GetStats(ctx, domain.Movie(movie))
 	if s.VoteCount != n || s.TotalScore != 5*n || s.Version != n {
 		t.Fatalf("lost updates: %+v", s)
 	}
@@ -123,25 +123,57 @@ func TestCommentsIdempotentAndOrdered(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := repo.RecentComments(ctx, movie, 10)
+	got, err := repo.RecentComments(ctx, domain.Movie(movie), 10)
 	if err != nil || len(got) != 2 || got[0].Text != "two" || got[1].ID != c1.EventID {
 		t.Fatalf("%+v %v", got, err)
 	}
 	if !got[1].CreatedAt.Equal(t0) {
 		t.Fatalf("timestamp round trip: %v vs %v", got[1].CreatedAt, t0)
 	}
-	if lim, _ := repo.RecentComments(ctx, movie, 1); len(lim) != 1 {
+	if lim, _ := repo.RecentComments(ctx, domain.Movie(movie), 1); len(lim) != 1 {
 		t.Fatal("limit ignored")
 	}
-	if empty, _ := repo.RecentComments(ctx, movie+1, 5); empty == nil || len(empty) != 0 {
+	if empty, _ := repo.RecentComments(ctx, domain.Movie(movie+1), 5); empty == nil || len(empty) != 0 {
 		t.Fatal("unknown movie should give an empty, non-nil slice")
 	}
 }
 
 func TestStatsForUnknownMovie(t *testing.T) {
 	repo, movie := setup(t)
-	s, err := repo.GetStats(context.Background(), movie)
-	if err != nil || s.VoteCount != 0 || s.MovieID != movie {
+	s, err := repo.GetStats(context.Background(), domain.Movie(movie))
+	if err != nil || s.VoteCount != 0 || s.Title != domain.Movie(movie) {
 		t.Fatalf("%+v %v", s, err)
+	}
+}
+
+func TestSeriesAndMoviesWithTheSameIDStayApart(t *testing.T) {
+	repo, id := setup(t)
+	ctx := context.Background()
+	series := domain.Title{Media: domain.MediaTV, ID: id}
+	t0 := time.Now().UTC().Truncate(time.Microsecond)
+
+	tvRating := rate(id, "u1", 9, t0)
+	tvRating.MediaType = domain.MediaTV
+	if _, err := repo.SaveRating(ctx, tvRating); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.SaveRating(ctx, rate(id, "u1", 2, t0)); err != nil { // same user, same id, the movie
+		t.Fatal(err)
+	}
+	tvStats, _ := repo.GetStats(ctx, series)
+	movieStats, _ := repo.GetStats(ctx, domain.Movie(id))
+	if tvStats.VoteCount != 1 || tvStats.TotalScore != 9 || movieStats.VoteCount != 1 || movieStats.TotalScore != 2 || tvStats.Title != series {
+		t.Fatalf("series %+v, movie %+v", tvStats, movieStats)
+	}
+
+	c := domain.CommentAdded{EventID: uuid.NewString(), MediaType: domain.MediaTV, MovieID: id, UserID: "u1", Text: "series", OccurredAt: t0}
+	if err := repo.SaveComment(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := repo.RecentComments(ctx, series, 5); len(got) != 1 || got[0].Text != "series" {
+		t.Fatalf("series comments %+v", got)
+	}
+	if got, _ := repo.RecentComments(ctx, domain.Movie(id), 5); len(got) != 0 {
+		t.Fatalf("the movie got the series' comment: %+v", got)
 	}
 }

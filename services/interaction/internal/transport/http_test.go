@@ -41,10 +41,10 @@ func (panicRepo) SaveRating(context.Context, domain.RatingSubmitted) (domain.Rat
 func (panicRepo) SaveComment(context.Context, domain.CommentAdded) error {
 	panic("write path touched Postgres")
 }
-func (panicRepo) GetStats(context.Context, int) (domain.RatingStats, error) {
+func (panicRepo) GetStats(context.Context, domain.Title) (domain.RatingStats, error) {
 	return domain.RatingStats{}, errors.New("no db")
 }
-func (panicRepo) RecentComments(context.Context, int, int) ([]domain.Comment, error) {
+func (panicRepo) RecentComments(context.Context, domain.Title, int) ([]domain.Comment, error) {
 	return nil, errors.New("no db")
 }
 
@@ -155,8 +155,8 @@ func TestStoreDownGives503(t *testing.T) {
 
 func TestGetServedFromReadModelOnly(t *testing.T) {
 	h, rm := server(t, &outbox{})
-	_ = rm.Init(context.Background(), domain.RatingStats{MovieID: 7, TotalScore: 17, VoteCount: 2, Version: 1}, nil)
-	_, _ = rm.AddComment(context.Background(), 7, domain.Comment{ID: "c", UserID: "a", Text: "hey"})
+	_ = rm.Init(context.Background(), domain.RatingStats{Title: domain.Movie(7), TotalScore: 17, VoteCount: 2, Version: 1}, nil)
+	_, _ = rm.AddComment(context.Background(), domain.Movie(7), domain.Comment{ID: "c", UserID: "a", Text: "hey"})
 
 	rec := do(h, "GET", "/api/v1/movies/7/interactions", "")
 	if rec.Code != 200 {

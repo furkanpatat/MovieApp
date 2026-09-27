@@ -30,16 +30,16 @@ func NewCommand(out domain.Outbox) *Command {
 }
 
 // SubmitRating returns the event id once the event is durably stored.
-func (c *Command) SubmitRating(ctx context.Context, movieID int, userID string, score int) (string, error) {
-	e := domain.RatingSubmitted{EventID: c.newID(), MovieID: movieID, UserID: userID, Score: score, OccurredAt: c.now()}
+func (c *Command) SubmitRating(ctx context.Context, t domain.Title, userID string, score int) (string, error) {
+	e := domain.RatingSubmitted{EventID: c.newID(), MediaType: t.Media, MovieID: t.ID, UserID: userID, Score: score, OccurredAt: c.now()}
 	if err := e.Validate(); err != nil {
 		return "", err
 	}
 	return e.EventID, c.enqueue(ctx, e.EventID, domain.EventTypeRatingSubmitted, e)
 }
 
-func (c *Command) SubmitComment(ctx context.Context, movieID int, userID, text string) (string, error) {
-	e := domain.CommentAdded{EventID: c.newID(), MovieID: movieID, UserID: userID, Text: text, OccurredAt: c.now()}
+func (c *Command) SubmitComment(ctx context.Context, t domain.Title, userID, text string) (string, error) {
+	e := domain.CommentAdded{EventID: c.newID(), MediaType: t.Media, MovieID: t.ID, UserID: userID, Text: text, OccurredAt: c.now()}
 	if err := e.Validate(); err != nil {
 		return "", err
 	}

@@ -35,12 +35,16 @@ func NewHandler(cmd *service.Command, query *service.Query, ready func() bool, l
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	if cmd != nil {
-		mux.HandleFunc("POST /api/v1/movies/{id}/rate", h.rate)
-		mux.HandleFunc("POST /api/v1/movies/{id}/comment", h.comment)
-	}
-	if query != nil {
-		mux.HandleFunc("GET /api/v1/movies/{id}/interactions", h.interactions)
+	// The same endpoints for movies and TV series: TMDB numbers them
+	// separately, so the path says which a title is.
+	for prefix, media := range map[string]string{"/api/v1/movies/": domain.MediaMovie, "/api/v1/tv/": domain.MediaTV} {
+		if cmd != nil {
+			mux.HandleFunc("POST "+prefix+"{id}/rate", h.rate(media))
+			mux.HandleFunc("POST "+prefix+"{id}/comment", h.comment(media))
+		}
+		if query != nil {
+			mux.HandleFunc("GET "+prefix+"{id}/interactions", h.interactions(media))
+		}
 	}
 	return mux
 }
@@ -69,38 +73,42 @@ func userID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, true
 }
 
-func (h *Handler) rate(w http.ResponseWriter, r *http.Request) {
-	uid, ok := userID(w, r)
-	if !ok {
-		return
+func (h *Handler) rate(media string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		t, ok := title(w, r, media)
+		if !ok {
+			return
+		}
+		var req rateRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		eventID, err := h.cmd.SubmitRating(r.Context(), t, uid, req.Score)
+		h.accepted(w, eventID, err)
 	}
-	id, ok := movieID(w, r)
-	if !ok {
-		return
-	}
-	var req rateRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	eventID, err := h.cmd.SubmitRating(r.Context(), id, uid, req.Score)
-	h.accepted(w, eventID, err)
 }
 
-func (h *Handler) comment(w http.ResponseWriter, r *http.Request) {
-	uid, ok := userID(w, r)
-	if !ok {
-		return
+func (h *Handler) comment(media string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		t, ok := title(w, r, media)
+		if !ok {
+			return
+		}
+		var req commentRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		eventID, err := h.cmd.SubmitComment(r.Context(), t, uid, req.Text)
+		h.accepted(w, eventID, err)
 	}
-	id, ok := movieID(w, r)
-	if !ok {
-		return
-	}
-	var req commentRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	eventID, err := h.cmd.SubmitComment(r.Context(), id, uid, req.Text)
-	h.accepted(w, eventID, err)
 }
 
 // accepted replies 202: the event is safely on the broker, but not yet
@@ -117,8 +125,12 @@ func (h *Handler) accepted(w http.ResponseWriter, eventID string, err error) {
 	}
 }
 
-func (h *Handler) interactions(w http.ResponseWriter, r *http.Request) {
-	id, ok := movieID(w, r)
+func (h *Handler) interactions(media string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) { h.serveInteractions(w, r, media) }
+}
+
+func (h *Handler) serveInteractions(w http.ResponseWriter, r *http.Request, media string) {
+	t, ok := title(w, r, media)
 	if !ok {
 		return
 	}
@@ -131,7 +143,7 @@ func (h *Handler) interactions(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	res, err := h.query.GetInteractions(r.Context(), id, limit)
+	res, err := h.query.GetInteractions(r.Context(), t, limit)
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, res)
@@ -143,13 +155,14 @@ func (h *Handler) interactions(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func movieID(w http.ResponseWriter, r *http.Request) (int, bool) {
+// title is the {id} path value as a title of the route's media type.
+func title(w http.ResponseWriter, r *http.Request, media string) (domain.Title, bool) {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil || id < 1 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "movie id must be a positive integer"})
-		return 0, false
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id must be a positive integer"})
+		return domain.Title{}, false
 	}
-	return id, true
+	return domain.Title{Media: media, ID: id}, true
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {

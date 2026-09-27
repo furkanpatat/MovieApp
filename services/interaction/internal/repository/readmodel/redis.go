@@ -55,16 +55,24 @@ func New(rdb redis.Cmdable, keepComments int) *Model {
 	return &Model{rdb: rdb, keep: keepComments}
 }
 
-func ratingKey(id int) string   { return fmt.Sprintf("interaction:%d:rating", id) }
-func commentsKey(id int) string { return fmt.Sprintf("interaction:%d:comments", id) }
+// Keys per title. Movies keep the names they had before series existed (so
+// an existing read model stays valid); series get their own namespace.
+func keyPrefix(t domain.Title) string {
+	if t.Media == domain.MediaTV {
+		return fmt.Sprintf("interaction:tv:%d", t.ID)
+	}
+	return fmt.Sprintf("interaction:%d", t.ID)
+}
+func ratingKey(t domain.Title) string   { return keyPrefix(t) + ":rating" }
+func commentsKey(t domain.Title) string { return keyPrefix(t) + ":comments" }
 
-func (m *Model) Get(ctx context.Context, movieID, limit int) (domain.Interactions, bool, error) {
+func (m *Model) Get(ctx context.Context, t domain.Title, limit int) (domain.Interactions, bool, error) {
 	if limit < 1 || limit > m.keep {
 		limit = m.keep
 	}
 	pipe := m.rdb.Pipeline()
-	h := pipe.HGetAll(ctx, ratingKey(movieID))
-	z := pipe.ZRevRange(ctx, commentsKey(movieID), 0, int64(limit-1))
+	h := pipe.HGetAll(ctx, ratingKey(t))
+	z := pipe.ZRevRange(ctx, commentsKey(t), 0, int64(limit-1))
 	if _, err := pipe.Exec(ctx); err != nil {
 		return domain.Interactions{}, false, err
 	}
@@ -79,7 +87,8 @@ func (m *Model) Get(ctx context.Context, movieID, limit int) (domain.Interaction
 		return domain.Interactions{}, false, errors.New("corrupt rating hash")
 	}
 	out := domain.Interactions{
-		MovieID:        movieID,
+		MediaType:      t.Media,
+		MovieID:        t.ID,
 		AverageRating:  domain.RatingStats{TotalScore: sum, VoteCount: count}.Average(),
 		TotalVotes:     count,
 		RecentComments: make([]domain.Comment, 0, len(z.Val())),
@@ -94,17 +103,17 @@ func (m *Model) Get(ctx context.Context, movieID, limit int) (domain.Interaction
 }
 
 func (m *Model) ApplyRating(ctx context.Context, s domain.RatingStats) (bool, error) {
-	n, err := applyRating.Run(ctx, m.rdb, []string{ratingKey(s.MovieID)}, s.Version, s.TotalScore, s.VoteCount).Int()
+	n, err := applyRating.Run(ctx, m.rdb, []string{ratingKey(s.Title)}, s.Version, s.TotalScore, s.VoteCount).Int()
 	return n == 1, err
 }
 
-func (m *Model) AddComment(ctx context.Context, movieID int, c domain.Comment) (bool, error) {
+func (m *Model) AddComment(ctx context.Context, t domain.Title, c domain.Comment) (bool, error) {
 	b, err := json.Marshal(c)
 	if err != nil {
 		return false, err
 	}
 	n, err := addComment.Run(ctx, m.rdb,
-		[]string{ratingKey(movieID), commentsKey(movieID)}, c.CreatedAt.UnixMilli(), string(b), m.keep).Int()
+		[]string{ratingKey(t), commentsKey(t)}, c.CreatedAt.UnixMilli(), string(b), m.keep).Int()
 	return n == 1, err
 }
 
@@ -121,11 +130,11 @@ func (m *Model) Init(ctx context.Context, s domain.RatingStats, recent []domain.
 			}
 			zs = append(zs, redis.Z{Score: float64(c.CreatedAt.UnixMilli()), Member: string(b)})
 		}
-		pipe.ZAdd(ctx, commentsKey(s.MovieID), zs...)
-		pipe.ZRemRangeByRank(ctx, commentsKey(s.MovieID), 0, int64(-(m.keep + 1)))
+		pipe.ZAdd(ctx, commentsKey(s.Title), zs...)
+		pipe.ZRemRangeByRank(ctx, commentsKey(s.Title), 0, int64(-(m.keep + 1)))
 		if _, err := pipe.Exec(ctx); err != nil {
 			return err
 		}
 	}
-	return initRating.Run(ctx, m.rdb, []string{ratingKey(s.MovieID)}, s.Version, s.TotalScore, s.VoteCount).Err()
+	return initRating.Run(ctx, m.rdb, []string{ratingKey(s.Title)}, s.Version, s.TotalScore, s.VoteCount).Err()
 }
