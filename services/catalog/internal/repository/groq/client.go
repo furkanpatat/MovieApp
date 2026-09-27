@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -131,8 +132,11 @@ func (c *client) complete(ctx context.Context, req completionRequest) (message, 
 		case "json_validate_failed":
 			return message{}, "", fmt.Errorf("%w: %w", domain.ErrUnavailable, &jsonValidateError{Generation: e.Error.FailedGeneration})
 		}
-		// 401 bad key, 429 rate limit, 5xx outage: all "unavailable" to our
-		// caller; the log gets Groq's reason (never the key).
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return message{}, "", &domain.RateLimitError{RetryAfter: retryAfter(resp.Header.Get("Retry-After"))}
+		}
+		// 401 bad key, 5xx outage: "unavailable" to our caller; the log
+		// gets Groq's reason (never the key).
 		return message{}, "", fmt.Errorf("%w: groq status %d: %s", domain.ErrUnavailable, resp.StatusCode, truncate(e.Error.Message, 300))
 	}
 	var out completionResponse
@@ -140,6 +144,15 @@ func (c *client) complete(ctx context.Context, req completionRequest) (message, 
 		return message{}, "", fmt.Errorf("%w: groq: unexpected response", domain.ErrUnavailable)
 	}
 	return out.Choices[0].Message, out.Choices[0].FinishReason, nil
+}
+
+// retryAfter reads a Retry-After header in seconds (Groq sends it on a
+// 429); 10s when absent or unreadable.
+func retryAfter(h string) time.Duration {
+	if secs, err := strconv.ParseFloat(strings.TrimSpace(h), 64); err == nil && secs > 0 {
+		return time.Duration(secs * float64(time.Second))
+	}
+	return 10 * time.Second
 }
 
 func truncate(s string, n int) string {

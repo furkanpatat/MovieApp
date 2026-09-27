@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/furkanpatat/movieapp/services/catalog/internal/domain"
 )
@@ -283,5 +284,20 @@ func TestRejectedJSONIsSalvagedOrRetried(t *testing.T) {
 	k, f, _ = newConcierge(t, final("prose"), jsonValidateFailed("nope"))
 	if _, err = k.Reply(context.Background(), hi); !errors.Is(err, domain.ErrUnavailable) || len(f.requests) != 3 {
 		t.Fatalf("give up: %v, %d requests", err, len(f.requests))
+	}
+}
+
+func TestRateLimitCarriesRetryAfter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "7")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"error":{"message":"Rate limit reached"}}`)
+	}))
+	t.Cleanup(srv.Close)
+	k := New(Config{APIKey: "gsk-test", Model: "m", BaseURL: srv.URL + "/v1", Logger: quiet}, &fakeSearch{})
+	_, err := k.Reply(context.Background(), hi)
+	var rl *domain.RateLimitError
+	if !errors.As(err, &rl) || rl.RetryAfter != 7*time.Second || !errors.Is(err, domain.ErrUnavailable) {
+		t.Fatalf("got %v", err)
 	}
 }

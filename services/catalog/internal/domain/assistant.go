@@ -1,6 +1,10 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"time"
+)
 
 // Chat roles, as LLM APIs name them.
 const (
@@ -52,6 +56,17 @@ type ChatReply struct {
 type MovieSearcher interface {
 	SearchMovies(ctx context.Context, query string, page int) (MoviePage, error)
 }
+
+// RateLimitError: the model's provider refused for now (HTTP 429); try again
+// after RetryAfter. It is an ErrUnavailable.
+type RateLimitError struct {
+	RetryAfter time.Duration
+}
+
+func (e *RateLimitError) Error() string {
+	return fmt.Sprintf("%v: rate limited, retry after %s", ErrUnavailable, e.RetryAfter)
+}
+func (e *RateLimitError) Unwrap() error { return ErrUnavailable }
 
 // ChatModel produces the assistant's next reply.
 type ChatModel interface {

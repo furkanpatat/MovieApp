@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -20,6 +21,9 @@ type ChatResponse struct {
 	MovieIDs []int          `json:"movie_ids"`
 	Movies   []domain.Movie `json:"movies"`
 	Demo     bool           `json:"demo,omitempty"` // canned replies, no LLM configured
+	// Fallback: the model couldn't answer (rate limited, down), so these are
+	// keyword picks from the catalog (see keyword_picks.go).
+	Fallback bool `json:"fallback,omitempty"`
 }
 
 // Assistant is the movie recommendation chat.
@@ -28,10 +32,35 @@ type Assistant struct {
 	catalog *Catalog
 	timeout time.Duration // per movie lookup
 	demo    bool
+	now     func() time.Time
+
+	// After a rate limit the model isn't asked again until then: keyword
+	// picks answer meanwhile (and the provider's quota recovers).
+	mu        sync.Mutex
+	coolUntil time.Time
 }
 
 func NewAssistant(model domain.ChatModel, catalog *Catalog) *Assistant {
-	return &Assistant{model: model, catalog: catalog, timeout: 5 * time.Second}
+	return &Assistant{model: model, catalog: catalog, timeout: 5 * time.Second, now: time.Now}
+}
+
+// Bounds on a rate limit's cooldown, whatever the provider asks for.
+const (
+	minCooldown = 5 * time.Second
+	maxCooldown = 60 * time.Second
+)
+
+func (a *Assistant) coolingDown() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.now().Before(a.coolUntil)
+}
+
+func (a *Assistant) coolDown(d time.Duration) {
+	d = max(minCooldown, min(d, maxCooldown))
+	a.mu.Lock()
+	a.coolUntil = a.now().Add(d)
+	a.mu.Unlock()
 }
 
 // AsDemo marks replies as canned (the mock model), so the UI can say so.
@@ -57,14 +86,31 @@ func (a *Assistant) Chat(ctx context.Context, userID string, history []domain.Ch
 	if len(path) > maxPathLen {
 		return ChatResponse{}, fmt.Errorf("%w: path is too long", domain.ErrInvalidInput)
 	}
-	page, pageIDs := a.pageContext(ctx, path)
-	r, err := a.model.Reply(ctx, domain.ChatRequest{UserID: userID, History: history, Page: page, PageMovieIDs: pageIDs, Locale: locale})
-	if err != nil {
-		return ChatResponse{}, err
+	last := history[len(history)-1].Content
+	var r domain.ChatReply
+	fallback := a.coolingDown()
+	if fallback {
+		r = a.keywordReply(ctx, last, locale)
+	} else {
+		page, pageIDs := a.pageContext(ctx, path)
+		var err error
+		r, err = a.model.Reply(ctx, domain.ChatRequest{UserID: userID, History: history, Page: page, PageMovieIDs: pageIDs, Locale: locale})
+		if err != nil {
+			if !errors.Is(err, domain.ErrUnavailable) {
+				return ChatResponse{}, err
+			}
+			// The model can't answer right now: keyword picks instead of an error.
+			var rl *domain.RateLimitError
+			if errors.As(err, &rl) {
+				a.coolDown(rl.RetryAfter)
+			}
+			a.catalog.log.Warn("chat model unavailable, answering with keyword picks", "error", err)
+			r, fallback = a.keywordReply(ctx, last, locale), true
+		}
 	}
 
 	ids := uniquePositive(r.MovieIDs, domain.MaxChatMovies)
-	return ChatResponse{Message: r.Message, MovieIDs: ids, Movies: a.resolve(ctx, ids), Demo: a.demo}, nil
+	return ChatResponse{Message: r.Message, MovieIDs: ids, Movies: a.resolve(ctx, ids), Demo: a.demo, Fallback: fallback}, nil
 }
 
 // pageContext describes the page at path for the model, from our own data:
