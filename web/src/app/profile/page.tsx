@@ -4,9 +4,11 @@ import { useEffect, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bookmark, KeyRound, Languages, LogOut, Mail, Star, UserRound } from "lucide-react";
+import { Bookmark, CircleCheck, KeyRound, Languages, LogOut, Mail, Share2, Star, UserRound } from "lucide-react";
+import { toast } from "sonner";
 
 import { LanguageToggle } from "@/components/layout/language-toggle";
+import { WatchedGrid } from "@/components/profile/watched-grid";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,7 +32,7 @@ export default function ProfilePage() {
   const userId = useAuthStore((s) => s.userId);
   const username = useAuthStore((s) => s.username);
   const email = useAuthStore((s) => s.email);
-  const { list, ratings, status } = useUserLibrary();
+  const { list, watched, ratings, status } = useUserLibrary();
   const logout = useLogout();
   const { t, locale } = useT();
 
@@ -54,16 +56,39 @@ export default function ProfilePage() {
           <div className="flex size-20 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-amber-600 text-3xl font-bold text-zinc-950 shadow-lg shadow-primary/20">
             {username.charAt(0).toUpperCase()}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{username}</h1>
             {email && <p className="truncate text-sm text-muted-foreground">{email}</p>}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => void shareProfile(username, t("profile.profileLinkCopied"))}>
+                <Share2 className="size-4" />
+                {t("profile.shareProfile")}
+              </Button>
+              <Button size="sm" variant="secondary" asChild>
+                <Link href={`/u/${encodeURIComponent(username)}`}>{t("profile.viewPublic")}</Link>
+              </Button>
+            </div>
           </div>
         </section>
 
         {/* Stats */}
-        <section className="grid grid-cols-2 gap-4">
+        <section className="grid grid-cols-3 gap-4">
           <Stat href="/my-list" icon={<Bookmark className="size-5 text-primary" />} value={list.length} label={t("profile.inMyList")} />
+          <Stat href="#watched" icon={<CircleCheck className="size-5 text-primary" />} value={watched.length} label={t("profile.watched")} />
           <Stat icon={<Star className="size-5 text-primary" />} value={Object.keys(ratings).length} label={t("profile.ratings")} />
+        </section>
+
+        {/* Watched: public, on /u/{username} too */}
+        <section id="watched" className={`${GLASS} scroll-mt-24 p-6`}>
+          <h2 className="text-lg font-bold tracking-tight">{t("profile.watchedTitle")}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">{t("profile.watchedPublic")}</p>
+          {watched.length === 0 ? (
+            <p className="mt-4 text-sm text-muted-foreground">{t("profile.watchedEmpty")}</p>
+          ) : (
+            <div className="mt-4">
+              <WatchedGrid movies={watched.map((w) => w.movie)} />
+            </div>
+          )}
         </section>
 
         {/* Recent ratings */}
@@ -164,6 +189,21 @@ function Stat({ icon, value, label, href }: { icon: ReactNode; value: number; la
   ) : (
     <div className={`${GLASS} p-5`}>{body}</div>
   );
+}
+
+/** Shares the public profile link: the device's share sheet, or the clipboard. */
+async function shareProfile(username: string, copied: string) {
+  const url = `${window.location.origin}/u/${encodeURIComponent(username)}`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: username, url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    toast.success(copied, { id: "share-profile" });
+  } catch {
+    // The share sheet closed, or no clipboard: nothing to report.
+  }
 }
 
 function SettingRow({ icon, label, value, action }: { icon: ReactNode; label: string; value: string; action?: ReactNode }) {

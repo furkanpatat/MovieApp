@@ -71,6 +71,9 @@ type gateway struct {
 //	POST /api/v1/movies/{id}/rate|comment  -> Interaction    (JWT required)
 //	GET|POST /api/v1/watchlist, DELETE /api/v1/watchlist/{movie_id},
 //	GET|PUT  /api/v1/ratings               -> Catalog        (JWT required; the user's library)
+//	GET|POST /api/v1/watched, DELETE /api/v1/watched/{movie_id}
+//	                                       -> Catalog        (JWT required; what the user watched)
+//	GET  /api/v1/users/{username}/watched  -> Catalog        (public; profile pages)
 //	POST /api/v1/chat                      -> Catalog        (JWT required; AI recommendation assistant)
 //	GET  /api/v1/watch-party/...           -> Watch-Party    (JWT required; WebSocket upgrade,
 //	                                          token in Authorization header, ?token= or cookie)
@@ -136,6 +139,11 @@ func New(d Deps) http.Handler {
 	api.Handle("DELETE /api/v1/watchlist/{movie_id}", requireAuth(catalog))
 	api.Handle("GET /api/v1/ratings", requireAuth(catalog))
 	api.Handle("PUT /api/v1/ratings", requireAuth(catalog))
+	api.Handle("GET /api/v1/watched", requireAuth(catalog))
+	api.Handle("POST /api/v1/watched", requireAuth(catalog))
+	api.Handle("DELETE /api/v1/watched/{movie_id}", requireAuth(catalog))
+	// Public profiles: anyone may see what a user watched.
+	api.Handle("GET /api/v1/users/{username}/watched", catalog)
 	// AI assistant: signed-in only (an LLM call costs money per request),
 	// with a longer timeout and a stricter per-client budget.
 	chat := requireAuth(g.proxyVia(d.Catalog, g.chatTransport))

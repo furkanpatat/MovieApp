@@ -12,6 +12,7 @@ import { TrailerDialog } from "@/components/movies/trailer-dialog";
 import {
   ErrorState,
   SaveButton,
+  WatchedButton,
   SECONDARY_ACTION,
   TitleBackdrop,
   TitleDetailSkeleton,
@@ -115,6 +116,7 @@ function SeriesActions({ show: s }: { show: Movie }) {
         />
       )}
       <SaveButton movie={s} />
+      <WatchedButton movie={s} />
       <CommentSheet
         subject={s}
         title={s.title}

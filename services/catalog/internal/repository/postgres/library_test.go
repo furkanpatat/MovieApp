@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -223,6 +224,56 @@ func TestSeriesInTheLibrary(t *testing.T) {
 	// A series with no tv_shows row is "not stored" (the service fetches it).
 	unstored := domain.TitleRef{MediaType: domain.MediaTV, ID: id + 1}
 	if _, err := f.repo.AddToWatchlist(ctx, alice, unstored); !errors.Is(err, domain.ErrMovieNotStored) {
+		t.Fatalf("unstored series: %v", err)
+	}
+}
+
+func TestWatched(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	id := f.movie(t, "Watched Movie")
+	if err := f.repo.UpsertTV(ctx, domain.Movie{ID: id, MediaType: domain.MediaTV, Title: "Watched Series", Overview: "o"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = f.pool.Exec(context.Background(), `DELETE FROM tv_shows WHERE id = $1`, id) })
+	alice := f.user(t)
+	series := domain.TitleRef{MediaType: domain.MediaTV, ID: id}
+
+	first, err := f.repo.MarkWatched(ctx, alice, domain.MovieRef(id))
+	if err != nil || first.Movie.Title != "Watched Movie" || first.Movie.MediaType != domain.MediaMovie {
+		t.Fatalf("mark movie %+v %v", first, err)
+	}
+	if _, err := f.repo.MarkWatched(ctx, alice, series); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := f.repo.MarkWatched(ctx, alice, domain.MovieRef(id))
+	if !again.WatchedAt.Equal(first.WatchedAt) {
+		t.Fatalf("re-marking moved watched_at: %v -> %v", first.WatchedAt, again.WatchedAt)
+	}
+
+	mine, err := f.repo.GetUserWatched(ctx, alice)
+	if err != nil || len(mine) != 2 || mine[0].Movie.Title != "Watched Series" {
+		t.Fatalf("mine %+v %v", mine, err)
+	}
+
+	// The public view, by name, any case.
+	var name string
+	_ = f.pool.QueryRow(ctx, `SELECT username FROM auth.users WHERE id = $1`, alice).Scan(&name)
+	pub, err := f.repo.GetWatchedByUsername(ctx, strings.ToUpper(name), 1)
+	if err != nil || pub.Username != name || len(pub.Items) != 1 {
+		t.Fatalf("public %+v %v", pub, err)
+	}
+	if _, err := f.repo.GetWatchedByUsername(ctx, "no_such_user_x", 10); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("unknown user: %v", err)
+	}
+
+	if err := f.repo.UnmarkWatched(ctx, alice, series); err != nil {
+		t.Fatal(err)
+	}
+	if mine, _ = f.repo.GetUserWatched(ctx, alice); len(mine) != 1 || mine[0].Movie.MediaType != domain.MediaMovie {
+		t.Fatalf("after unmarking the series %+v", mine)
+	}
+	if _, err := f.repo.MarkWatched(ctx, alice, domain.TitleRef{MediaType: domain.MediaTV, ID: id + 1}); !errors.Is(err, domain.ErrMovieNotStored) {
 		t.Fatalf("unstored series: %v", err)
 	}
 }

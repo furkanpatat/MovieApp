@@ -77,3 +77,29 @@ type LibraryStore interface {
 	// GetUserRatings returns the ratings, most recently changed first.
 	GetUserRatings(ctx context.Context, userID string) ([]UserRating, error)
 }
+
+// WatchedItem is one title a user has watched.
+type WatchedItem struct {
+	Movie     Movie     `json:"movie"`
+	WatchedAt time.Time `json:"watched_at"`
+}
+
+// PublicWatched is what anyone may see of a user: their name and what they
+// watched (their list and ratings stay private).
+type PublicWatched struct {
+	Username string        `json:"username"`
+	Items    []WatchedItem `json:"items"`
+}
+
+// WatchedStore persists what each user has watched (PostgreSQL).
+type WatchedStore interface {
+	// MarkWatched is idempotent: marking again keeps the first watched_at.
+	MarkWatched(ctx context.Context, userID string, ref TitleRef) (WatchedItem, error)
+	// UnmarkWatched is idempotent.
+	UnmarkWatched(ctx context.Context, userID string, ref TitleRef) error
+	// GetUserWatched returns the titles, most recently watched first.
+	GetUserWatched(ctx context.Context, userID string) ([]WatchedItem, error)
+	// GetWatchedByUsername is the public view of a user (username matched
+	// case-insensitively); ErrNotFound when there is no such user.
+	GetWatchedByUsername(ctx context.Context, username string, limit int) (PublicWatched, error)
+}

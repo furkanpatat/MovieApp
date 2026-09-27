@@ -12,6 +12,9 @@ var libraryRoutes = [][3]string{ // method, path, body
 	{"GET", "/api/v1/ratings", ""},
 	{"PUT", "/api/v1/ratings", `{"movie_id":7,"rating":8}`},
 	{"POST", "/api/v1/chat", `{"messages":[{"role":"user","content":"hi"}]}`},
+	{"GET", "/api/v1/watched", ""},
+	{"POST", "/api/v1/watched", `{"movie_id":7}`},
+	{"DELETE", "/api/v1/watched/7", ""},
 }
 
 func TestLibraryRoutesRequireAuth(t *testing.T) {
@@ -79,7 +82,7 @@ func TestLibraryCookieWritesFromForeignOriginsAreRejected(t *testing.T) {
 
 func TestPeopleAndSearchArePublicCatalogRoutes(t *testing.T) {
 	e := newEnv(t, opts{})
-	paths := []string{"/api/v1/people/31", "/api/v1/search/movies?q=dune", "/api/v1/discover/movies?genre=28", "/api/v1/tv/1399", "/api/v1/tv/popular", "/api/v1/discover/tv?genre=10765", "/api/v1/search/tv?q=office"}
+	paths := []string{"/api/v1/people/31", "/api/v1/search/movies?q=dune", "/api/v1/discover/movies?genre=28", "/api/v1/tv/1399", "/api/v1/tv/popular", "/api/v1/discover/tv?genre=10765", "/api/v1/search/tv?q=office", "/api/v1/users/alice/watched"}
 	for _, path := range paths {
 		resp := e.do(t, "GET", path, "", map[string]string{"X-User-Id": "admin"})
 		if resp.StatusCode != http.StatusOK {

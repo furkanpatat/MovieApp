@@ -17,6 +17,7 @@ import { SyncedTrailerPlayer } from "@/components/watch-party/synced-trailer-pla
 import {
   ErrorState,
   SaveButton,
+  WatchedButton,
   SECONDARY_ACTION,
   TitleBackdrop,
   TitleDetailSkeleton,
@@ -213,6 +214,7 @@ function MovieActions({ movie: m }: { movie: Movie }) {
         </Button>
       )}
       <SaveButton movie={m} />
+      <WatchedButton movie={m} />
       <CommentSheet
         subject={m}
         title={m.title}

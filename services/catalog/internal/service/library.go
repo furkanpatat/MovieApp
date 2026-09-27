@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/furkanpatat/movieapp/services/catalog/internal/domain"
 )
@@ -17,8 +18,9 @@ type TitleStorer interface {
 
 // Library is each user's watchlist and ratings, of movies and series.
 type Library struct {
-	store  domain.LibraryStore
-	titles TitleStorer
+	store   domain.LibraryStore
+	titles  TitleStorer
+	watched domain.WatchedStore // optional (WithWatched)
 }
 
 func NewLibrary(store domain.LibraryStore, titles TitleStorer) *Library {
@@ -74,4 +76,49 @@ func withStoredTitle[T any](ctx context.Context, l *Library, ref domain.TitleRef
 		return zero, err
 	}
 	return write()
+}
+
+// WithWatched adds the watched list (profile and public profile).
+func (l *Library) WithWatched(store domain.WatchedStore) *Library {
+	l.watched = store
+	return l
+}
+
+// HasWatched reports whether the watched list is configured.
+func (l *Library) HasWatched() bool { return l.watched != nil }
+
+// MarkWatched records that the user watched a movie or a series.
+func (l *Library) MarkWatched(ctx context.Context, userID string, ref domain.TitleRef) (domain.WatchedItem, error) {
+	if _, err := domain.ParseTitleRef(ref.MediaType, ref.ID); err != nil {
+		return domain.WatchedItem{}, err
+	}
+	return withStoredTitle(ctx, l, ref, func() (domain.WatchedItem, error) {
+		return l.watched.MarkWatched(ctx, userID, ref)
+	})
+}
+
+func (l *Library) UnmarkWatched(ctx context.Context, userID string, ref domain.TitleRef) error {
+	if _, err := domain.ParseTitleRef(ref.MediaType, ref.ID); err != nil {
+		return err
+	}
+	return l.watched.UnmarkWatched(ctx, userID, ref)
+}
+
+func (l *Library) GetUserWatched(ctx context.Context, userID string) ([]domain.WatchedItem, error) {
+	return l.watched.GetUserWatched(ctx, userID)
+}
+
+// publicWatchedLimit bounds a public profile's list.
+const publicWatchedLimit = 200
+
+// usernameRE is the auth service's username rule.
+var usernameRE = regexp.MustCompile(`^[A-Za-z0-9._-]{3,32}$`)
+
+// PublicWatched is anyone's view of a user: their name and what they
+// watched, most recent first. ErrNotFound for an unknown user.
+func (l *Library) PublicWatched(ctx context.Context, username string) (domain.PublicWatched, error) {
+	if !usernameRE.MatchString(username) {
+		return domain.PublicWatched{}, domain.ErrNotFound // same answer as an unknown name
+	}
+	return l.watched.GetWatchedByUsername(ctx, username, publicWatchedLimit)
 }

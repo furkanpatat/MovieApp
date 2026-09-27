@@ -60,6 +60,29 @@ export function useSavedToggle(movie: Movie) {
   return { saved, toggle };
 }
 
+/** "Watched" state and a gated toggle for one title (movie or series). */
+export function useWatchedToggle(movie: Movie) {
+  const key = titleKey(movie);
+  const watched = useUserLibrary().watched.some((e) => titleKey(e.movie) === key);
+  const toggleWatched = useLibraryStore((s) => s.toggleWatched);
+  const requireAuth = useRequireAuth();
+
+  const toggle = () =>
+    requireAuth(async () => {
+      try {
+        const now = await toggleWatched(movie);
+        toast(translate(currentLocale(), now ? "common.markedWatched" : "common.unmarkedWatched", { title: movie.title }), {
+          id: `watched-${key}`,
+        });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        toast.error(translate(currentLocale(), "common.watchedUpdateFailed"), { id: `watched-${key}` });
+      }
+    });
+
+  return { watched, toggle };
+}
+
 /** The score the current user gave this movie, if they have rated it. */
 export function useMyRating(title: TitleRef): number | undefined {
   const key = titleKey(title);

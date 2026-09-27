@@ -118,7 +118,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
-		Handler: transport.NewHandler(svc, service.NewLibrary(pgRepo, svc),
+		Handler: transport.NewHandler(svc, service.NewLibrary(pgRepo, svc).WithWatched(pgRepo),
 			func() bool { return tm.BreakerState() != gobreaker.StateOpen }, log,
 			transport.WithAssistant(assistant),
 		),

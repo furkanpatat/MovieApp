@@ -149,9 +149,10 @@ func mapLibraryError(err error) error {
 		return err
 	}
 	switch pgErr.ConstraintName {
-	case "watchlists_movie_fk", "user_ratings_movie_fk", "watchlists_tv_fk", "user_ratings_tv_fk":
+	case "watchlists_movie_fk", "user_ratings_movie_fk", "watchlists_tv_fk", "user_ratings_tv_fk",
+		"watched_movie_fk", "watched_tv_fk":
 		return fmt.Errorf("%w: %s", domain.ErrMovieNotStored, pgErr.Detail)
-	case "watchlists_user_fk", "user_ratings_user_fk":
+	case "watchlists_user_fk", "user_ratings_user_fk", "watched_user_fk":
 		return domain.ErrUnknownUser
 	}
 	return err

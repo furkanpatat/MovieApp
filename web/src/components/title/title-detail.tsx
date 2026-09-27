@@ -2,14 +2,14 @@
 
 import type { ReactNode } from "react";
 import Image from "next/image";
-import { Bookmark, BookmarkCheck, Clapperboard, Clock, TriangleAlert } from "lucide-react";
+import { Bookmark, BookmarkCheck, CircleCheck, Clapperboard, Clock, Eye, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RatingBadge } from "@/components/movies/rating-badge";
 import { CriticScores } from "@/components/movies/omdb-info";
 import { TVBadge } from "@/components/movies/movie-card";
-import { useSavedToggle } from "@/hooks/use-library";
+import { useSavedToggle, useWatchedToggle } from "@/hooks/use-library";
 import { genreName, useT } from "@/i18n";
 import { isTV } from "@/lib/media";
 import { backdropUrl, posterUrl } from "@/lib/tmdb-image";
@@ -122,6 +122,25 @@ export function TitleInfoPanel({ movie: m, facts, actions }: { movie: Movie; fac
 }
 
 export const SECONDARY_ACTION = "h-12 bg-white/10 px-6 text-base font-semibold text-white hover:bg-white/20";
+
+/** Mark a movie or series watched (or not); opens sign-in when signed out.
+ *  Watched titles are on the user's public profile. */
+export function WatchedButton({ movie }: { movie: Movie }) {
+  const { t } = useT();
+  const { watched, toggle } = useWatchedToggle(movie);
+  return (
+    <Button
+      size="lg"
+      variant="secondary"
+      className={cn(SECONDARY_ACTION, watched && "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/30 hover:bg-emerald-500/25")}
+      onClick={toggle}
+      aria-pressed={watched}
+    >
+      {watched ? <CircleCheck className="size-5" /> : <Eye className="size-5" />}
+      {t(watched ? "detail.watched" : "detail.markWatched")}
+    </Button>
+  );
+}
 
 /** Add to / remove from My List (a movie or a series); opens sign-in when
  *  signed out. */

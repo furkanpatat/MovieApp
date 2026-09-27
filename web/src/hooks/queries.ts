@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { apiFetch } from "@/lib/api-client";
 import { titleApiPath, titleKey, type TitleRef } from "@/lib/media";
+import type { PublicWatched } from "@/types/library";
 import { useAuthStore } from "@/store/auth-store";
 import { useLibraryStore } from "@/store/library-store";
 import type { Comment, Interactions, MediaType, Movie, MoviePage, Person } from "@/types/movie";
@@ -43,6 +44,16 @@ export function usePopularTitles(mode: MediaType, enabled: boolean = true) {
     getNextPageParam: (lastPage) => (lastPage.page < lastPage.total_pages ? lastPage.page + 1 : undefined),
     staleTime: 60_000,
     enabled,
+  });
+}
+
+/** Anyone's public profile: what they watched (GET
+ *  /api/v1/users/{username}/watched, no sign-in needed). */
+export function usePublicProfile(username: string) {
+  return useQuery({
+    queryKey: ["public-profile", username.toLowerCase()],
+    queryFn: () => apiFetch<PublicWatched>(`/api/v1/users/${encodeURIComponent(username)}/watched`, { auth: false }),
+    staleTime: 60_000,
   });
 }
 

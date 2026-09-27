@@ -35,6 +35,18 @@ export interface UserRating {
   updated_at: string;
 }
 
+/** GET /api/v1/watched items, POST /api/v1/watched response. */
+export interface WatchedItem {
+  movie: LibraryMovie;
+  watched_at: string;
+}
+
+/** GET /api/v1/users/{username}/watched: anyone's public profile. */
+export interface PublicWatched {
+  username: string;
+  items: WatchedItem[];
+}
+
 export interface ListResponse<T> {
   items: T[];
 }

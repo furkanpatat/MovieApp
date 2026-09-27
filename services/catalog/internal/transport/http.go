@@ -53,6 +53,13 @@ func NewHandler(svc *service.Catalog, lib *service.Library, ready func() bool, l
 		mux.HandleFunc("DELETE /api/v1/watchlist/{movie_id}", h.removeFromWatchlist)
 		mux.HandleFunc("GET /api/v1/ratings", h.ratings)
 		mux.HandleFunc("PUT /api/v1/ratings", h.rate)
+		if lib.HasWatched() {
+			mux.HandleFunc("GET /api/v1/watched", h.watched)
+			mux.HandleFunc("POST /api/v1/watched", h.markWatched)
+			mux.HandleFunc("DELETE /api/v1/watched/{movie_id}", h.unmarkWatched)
+			// Public: a user's profile, by name (no identity needed).
+			mux.HandleFunc("GET /api/v1/users/{username}/watched", h.publicWatched)
+		}
 	}
 	if h.chat != nil {
 		mux.HandleFunc("POST /api/v1/chat", h.chatReply)
@@ -362,6 +369,79 @@ func (h *Handler) rate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) watched(w http.ResponseWriter, r *http.Request) {
+	uid, ok := userID(w, r)
+	if !ok {
+		return
+	}
+	items, err := h.lib.GetUserWatched(r.Context(), uid)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// markWatched: POST /api/v1/watched {"media_type":"tv","movie_id":1399}
+func (h *Handler) markWatched(w http.ResponseWriter, r *http.Request) {
+	uid, ok := userID(w, r)
+	if !ok {
+		return
+	}
+	var req watchlistRequest // same body: a title
+	if !decode(w, r, &req) {
+		return
+	}
+	ref, err := domain.ParseTitleRef(req.MediaType, req.MovieID)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	item, err := h.lib.MarkWatched(r.Context(), uid, ref)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+// unmarkWatched: DELETE /api/v1/watched/{movie_id}?media_type=tv
+func (h *Handler) unmarkWatched(w http.ResponseWriter, r *http.Request) {
+	uid, ok := userID(w, r)
+	if !ok {
+		return
+	}
+	id, err := strconv.Atoi(r.PathValue("movie_id"))
+	if err != nil {
+		h.fail(w, domain.ErrInvalidInput)
+		return
+	}
+	ref, err := domain.ParseTitleRef(r.URL.Query().Get("media_type"), id)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	if err := h.lib.UnmarkWatched(r.Context(), uid, ref); err != nil {
+		h.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// publicWatched: GET /api/v1/users/{username}/watched, anyone may read it.
+func (h *Handler) publicWatched(w http.ResponseWriter, r *http.Request) {
+	res, err := h.lib.PublicWatched(r.Context(), r.PathValue("username"))
+	if errors.Is(err, domain.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+		return
+	}
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 type chatRequest struct {

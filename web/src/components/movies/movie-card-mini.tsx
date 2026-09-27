@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Clapperboard } from "lucide-react";
 
 import { RatingBadge } from "@/components/movies/rating-badge";
+import { titleHref } from "@/lib/media";
 import { posterUrl } from "@/lib/tmdb-image";
 import type { Movie } from "@/types/movie";
 
@@ -17,7 +18,7 @@ export function MovieCardMini({ movie, onNavigate }: { movie: Movie; onNavigate?
   const year = movie.release_date?.slice(0, 4);
   return (
     <Link
-      href={`/movies/${movie.id}`}
+      href={titleHref(movie)}
       onClick={onNavigate}
       className="group block w-28 shrink-0 snap-start rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
     >
