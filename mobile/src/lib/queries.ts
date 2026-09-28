@@ -1,7 +1,8 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import { useAuth } from "@/store/auth";
+import type { ListResponse, UserRating } from "@/types/library";
 import type { MediaType, Movie, MoviePage } from "@/types/movie";
 
 const seg = (m: MediaType) => (m === "tv" ? "tv" : "movies");
@@ -25,11 +26,12 @@ export function useGenre(mode: MediaType, genre: number) {
 }
 
 /** One title's details (cast, trailer, IMDb): GET /api/v1/{movies,tv}/{id}. */
-export function useTitle(mode: MediaType, id: number) {
+export function useTitle(mode: MediaType, id: number, enabled = true) {
   return useQuery({
     queryKey: [seg(mode), id],
     queryFn: () => api<Movie>(`/api/v1/${seg(mode)}/${id}`, { auth: false }),
-    enabled: Number.isInteger(id) && id > 0,
+    enabled: enabled && Number.isInteger(id) && id > 0,
+    staleTime: 10 * 60_000,
   });
 }
 
@@ -66,5 +68,45 @@ export function useSignIn() {
     },
     onSuccess: (r) =>
       signIn({ token: r.access_token, userId: r.user.id, username: r.user.username, expiresAt: Date.now() + r.expires_in * 1000 }),
+  });
+}
+
+/** The Discover feed, page after page: GET /api/v1/discover/{movies,tv}
+ *  (genre 0 = popular). */
+export function useDiscoverFeed(mode: MediaType, genre = 0) {
+  return useInfiniteQuery({
+    queryKey: ["feed", mode, genre],
+    queryFn: ({ pageParam }) => api<MoviePage>(`/api/v1/discover/${seg(mode)}?genre=${genre}&page=${pageParam}`, { auth: false }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.page < last.total_pages ? last.page + 1 : undefined),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** The signed-in user's ratings (GET /api/v1/ratings): what they liked. */
+export function useMyRatings() {
+  const token = useAuth((s) => s.token);
+  return useQuery({
+    queryKey: ["me", "ratings", token],
+    queryFn: () => api<ListResponse<UserRating>>("/api/v1/ratings"),
+    enabled: !!token,
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Like = rate 10, as on the web: the user's own rating (their library) and
+ * the public vote (the CQRS write path, 202 at once).
+ */
+export function useLike() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (m: Movie & { media_type: MediaType }) => {
+      await Promise.all([
+        api("/api/v1/ratings", { method: "PUT", body: { media_type: m.media_type, movie_id: m.id, rating: 10 } }),
+        api(`/api/v1/${seg(m.media_type)}/${m.id}/rate`, { method: "POST", body: { score: 10 } }),
+      ]);
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: ["me", "ratings"] }),
   });
 }

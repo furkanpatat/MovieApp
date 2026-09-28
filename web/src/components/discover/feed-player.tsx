@@ -151,9 +151,11 @@ export function FeedPlayer({
   return (
     // "Cover" for a 16:9 video: object-cover doesn't apply to an iframe, so
     // size it to at least the full width and the full height at that ratio
-    // (YouTube letterboxes anything else), then overscan a little to push
-    // its chrome off-screen.
-    <div className="pointer-events-none absolute top-1/2 left-1/2 h-[max(100dvh,56.25vw)] w-[max(100vw,177.78dvh)] -translate-x-1/2 -translate-y-1/2 scale-[1.15]">
+    // (YouTube letterboxes anything else), then overscan: most film trailers
+    // are scope (2.39:1) letterboxed in 16:9, bars 12.8% of the height each,
+    // and 1.36x crops them (s >= 1 / (1 - 2 * 0.128)) along with YouTube's
+    // chrome.
+    <div className="pointer-events-none absolute top-1/2 left-1/2 h-[max(100dvh,56.25vw)] w-[max(100vw,177.78dvh)] -translate-x-1/2 -translate-y-1/2 scale-[1.36]">
       <div ref={hostRef} className="h-full w-full [&>iframe]:h-full [&>iframe]:w-full" />
     </div>
   );
