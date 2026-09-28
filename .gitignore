@@ -8,3 +8,8 @@ __pycache__/
 
 # Production database dumps (docker-compose.prod.yml backup service)
 /backups/
+
+# Built mobile apps (see mobile/README.md)
+*.apk
+*.aab
+*.ipa

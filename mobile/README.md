@@ -19,6 +19,18 @@ point it at the local stack (`docker compose up -d` in the repo root), copy
 - iOS simulator: `http://localhost:8000`
 - a phone on your Wi-Fi: `http://<your Mac's LAN IP>:8000`
 
+## Android APK (install on any Android phone)
+
+```bash
+export ANDROID_HOME=~/Library/Android/sdk JAVA_HOME=$(/usr/libexec/java_home -v 21)
+npx expo prebuild --platform android      # generates android/ (not committed)
+cd android && ./gradlew assembleRelease    # -> app/build/outputs/apk/release/app-release.apk
+```
+
+The APK is signed with the debug key: fine to sideload (send it to the
+phone, open it, allow installing from that app). The Play Store needs a
+release keystore (or `npx eas-cli@latest build -p android`).
+
 ## Check
 
 ```bash
