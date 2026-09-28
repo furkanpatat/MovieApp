@@ -314,6 +314,7 @@ export const en = {
     edit: "Go to your profile",
   },
   person: {
+    details: "Person details",
     invalid: "That doesn't look like a valid person link.",
     notFound: "We couldn't find that person.",
     loadFailed: "Couldn't load this page.",

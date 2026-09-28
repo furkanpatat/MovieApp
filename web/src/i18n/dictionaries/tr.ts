@@ -313,6 +313,7 @@ export const tr: Dictionary = {
     edit: "Profiline git",
   },
   person: {
+    details: "Kişi ayrıntıları",
     invalid: "Bu geçerli bir kişi bağlantısına benzemiyor.",
     notFound: "Bu kişiyi bulamadık.",
     loadFailed: "Bu sayfa yüklenemedi.",

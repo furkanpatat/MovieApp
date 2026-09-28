@@ -14,9 +14,10 @@ import { ApiError } from "@/lib/api-client";
 import { backdropUrl, profileUrl } from "@/lib/tmdb-image";
 import type { Person } from "@/types/movie";
 
-/** Actor / crew page: photo, biography and their movies as scrolling rows.
+/** Actor / crew details: photo, biography and their movies as scrolling
+ *  rows, as a page (/person/[id]) or in the modal over the current page.
  *  The data comes from the Catalog's Redis -> Postgres -> TMDB layers. */
-export default function PersonPage() {
+export function PersonDetail() {
   const params = useParams<{ id: string }>();
   const personId = Number(params.id);
   const validId = Number.isInteger(personId) && personId > 0;
