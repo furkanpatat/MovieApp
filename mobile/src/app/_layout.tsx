@@ -34,6 +34,10 @@ export default function RootLayout() {
             name="title/[media]/[id]"
             options={{ headerTransparent: true, headerTitle: "", headerBackButtonDisplayMode: "minimal", headerTintColor: colors.text }}
           />
+          <Stack.Screen
+            name="party/[id]"
+            options={{ headerTitle: "Watch Party", headerBackButtonDisplayMode: "minimal", headerTintColor: colors.text, headerStyle: { backgroundColor: colors.bg } }}
+          />
           <Stack.Screen name="login" options={{ presentation: "formSheet", headerShown: false, sheetGrabberVisible: true, sheetAllowedDetents: [0.75] }} />
         </Stack>
       </ThemeProvider>

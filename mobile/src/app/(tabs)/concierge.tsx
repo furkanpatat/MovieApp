@@ -148,7 +148,8 @@ export default function Concierge() {
             style={styles.input}
             multiline
             maxLength={500}
-            onSubmitEditing={() => send(draft)}
+            // The input's own text: the draft state can lag a fast typist.
+            onSubmitEditing={(e) => send(e.nativeEvent.text)}
             submitBehavior="submit"
             returnKeyType="send"
           />

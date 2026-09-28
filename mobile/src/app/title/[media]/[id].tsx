@@ -6,6 +6,7 @@ import * as WebBrowser from "expo-web-browser";
 import { useMemo } from "react";
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
+import { newPartyCode } from "@/lib/party";
 import { useLibrary, useTitle, useToggleLibrary } from "@/lib/queries";
 import { backdropUrl, posterUrl, profileUrl } from "@/lib/tmdb";
 import { useAuth } from "@/store/auth";
@@ -113,6 +114,27 @@ export default function TitleScreen() {
 
       <LibraryButtons movie={t} media={media} />
 
+      {media === "movie" && t.trailer_key && (
+        <View style={styles.party}>
+          <Text style={styles.partyTitle}>Watch together</Text>
+          <Text style={styles.partySub}>Play the trailer in sync with friends — on their phones or on the web — and chat.</Text>
+          <View style={styles.libRow}>
+            <Pressable
+              onPress={() => router.push({ pathname: "/party/[id]", params: { id: String(t.id), code: newPartyCode() } })}
+              style={({ pressed }) => [styles.libButton, styles.libOn, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={[styles.libText, styles.libTextOn]}>🔒 Private party</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push({ pathname: "/party/[id]", params: { id: String(t.id) } })}
+              style={({ pressed }) => [styles.libButton, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={styles.libText}>🌐 Open room</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
       {t.genres && t.genres.length > 0 && (
         <View style={styles.chips}>
           {t.genres.map((g) => (
@@ -181,6 +203,9 @@ const styles = StyleSheet.create({
   tmdb: { color: colors.text, fontWeight: "700" },
   trailer: { marginHorizontal: 16, marginTop: 18, backgroundColor: colors.gold, borderRadius: 999, paddingVertical: 13, alignItems: "center" },
   trailerText: { color: colors.onGold, fontWeight: "800", fontSize: 16 },
+  party: { marginHorizontal: 16, marginTop: 20, padding: 16, borderRadius: radius.md, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  partyTitle: { color: colors.text, fontSize: 17, fontWeight: "800" },
+  partySub: { color: colors.mute, marginTop: 4, marginBottom: 2 },
   libRow: { flexDirection: "row", gap: 10, marginHorizontal: 16, marginTop: 10 },
   libButton: { flex: 1, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, borderRadius: 999, paddingVertical: 11, alignItems: "center" },
   libOn: { borderColor: "rgba(251,191,36,0.6)", backgroundColor: "rgba(251,191,36,0.12)" },
