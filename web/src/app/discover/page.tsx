@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { ActionRail } from "@/components/discover/action-rail";
+import { FeedPlayer } from "@/components/discover/feed-player";
 import Image from "next/image";
 import { motion, AnimatePresence, useInView } from "framer-motion";
 import { Heart } from "lucide-react";
@@ -36,7 +37,6 @@ const DiscoverPost = memo(function DiscoverPost({
   fetchNextPage: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   // A title opened in the modal covers the feed: pause as if scrolled away.
   const modalOpen = useTitleModalStore((s) => s.open);
   const isInView = useInView(ref, { amount: 0.6 }) && !modalOpen;
@@ -44,7 +44,7 @@ const DiscoverPost = memo(function DiscoverPost({
   const [showHeart, setShowHeart] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   
-  const { isMuted, toggleMute } = useFeedStore();
+  const { isMuted, toggleMute, setMuted } = useFeedStore();
   
   const rateMutation = useRateMovie(movie);
   const myRating = useMyRating(movie);
@@ -61,36 +61,9 @@ const DiscoverPost = memo(function DiscoverPost({
   const isLiked = (myRating ?? 0) >= 8 || rateMutation.isPending;
   const like = () => requireAuth(() => rateMutation.mutate(10));
 
-  // YouTube IFrame API command over postMessage (the player UI is hidden).
-  const sendCommand = (command: string) => {
-    if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        JSON.stringify({ event: "command", func: command }),
-        "*"
-      );
-    }
-  };
-
   useEffect(() => {
-    if (isInView) {
-      if (index >= totalMovies - 2 && hasNextPage) {
-        fetchNextPage();
-      }
-      if (iframeRef.current && isPlaying) {
-        sendCommand("playVideo");
-      }
-    } else {
-      if (iframeRef.current) {
-        sendCommand("pauseVideo");
-      }
-    }
-  }, [isInView, isPlaying, index, totalMovies, hasNextPage, fetchNextPage]);
-
-  useEffect(() => {
-    if (isInView && iframeRef.current) {
-      sendCommand(isMuted ? "mute" : "unMute");
-    }
-  }, [isMuted, isInView]);
+    if (isInView && index >= totalMovies - 2 && hasNextPage) fetchNextPage();
+  }, [isInView, index, totalMovies, hasNextPage, fetchNextPage]);
 
 
   const lastTapRef = useRef<number>(0);
@@ -112,9 +85,7 @@ const DiscoverPost = memo(function DiscoverPost({
       });
     } else {
       tapTimeoutRef.current = setTimeout(() => {
-        const nextPlaying = !isPlaying;
-        setIsPlaying(nextPlaying);
-        sendCommand(nextPlaying ? "playVideo" : "pauseVideo");
+        setIsPlaying((playing) => !playing);
       }, DOUBLE_TAP_DELAY);
     }
     
@@ -129,17 +100,7 @@ const DiscoverPost = memo(function DiscoverPost({
       <div className="absolute inset-0">
         {videoKey && isInView ? (
           <div className="absolute inset-0 pointer-events-none">
-            <iframe
-              ref={iframeRef}
-              onLoad={() => sendCommand(isMuted ? "mute" : "unMute")}
-              src={`https://www.youtube.com/embed/${videoKey}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&modestbranding=1&rel=0&playsinline=1&enablejsapi=1&loop=1&playlist=${videoKey}`}
-              allow="autoplay"
-              // "Cover" for a 16:9 video: object-cover doesn't apply to an
-              // iframe, so size it to at least the full width and the full
-              // height at that ratio (YouTube letterboxes anything else),
-              // then overscan a little to push its chrome off-screen.
-              className="pointer-events-none absolute top-1/2 left-1/2 h-[max(100dvh,56.25vw)] w-[max(100vw,177.78dvh)] -translate-x-1/2 -translate-y-1/2 scale-[1.15]"
-            />
+            <FeedPlayer videoKey={videoKey} playing={isPlaying} muted={isMuted} onSoundBlocked={() => setMuted(true)} />
           </div>
         ) : (
           backdrop && (

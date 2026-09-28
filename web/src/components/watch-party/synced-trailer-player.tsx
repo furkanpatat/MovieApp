@@ -5,47 +5,8 @@ import { Loader2, Pause, Play, RotateCw } from "lucide-react";
 
 import { useT } from "@/i18n";
 import { displayName } from "@/lib/format";
+import { BUFFERING, loadYouTubeApi, PAUSED, PLAYING, type YTPlayer } from "@/lib/youtube";
 import type { PlaybackState } from "@/types/watch-party";
-
-// --- YouTube IFrame Player API (loaded once, on demand) ---------------------
-
-interface YTPlayer {
-  playVideo(): void;
-  pauseVideo(): void;
-  seekTo(seconds: number, allowSeekAhead: boolean): void;
-  getCurrentTime(): number;
-  getDuration(): number;
-  getPlayerState(): number;
-  destroy(): void;
-}
-
-declare global {
-  interface Window {
-    YT?: { Player: new (el: HTMLElement, options: object) => YTPlayer };
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-
-const PLAYING = 1;
-const PAUSED = 2;
-const BUFFERING = 3;
-
-let apiReady: Promise<void> | null = null;
-function loadYouTubeApi(): Promise<void> {
-  if (window.YT?.Player) return Promise.resolve();
-  apiReady ??= new Promise((resolve) => {
-    const previous = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-      previous?.();
-      resolve();
-    };
-    const script = document.createElement("script");
-    script.src = "https://www.youtube.com/iframe_api";
-    script.async = true;
-    document.head.appendChild(script);
-  });
-  return apiReady;
-}
 
 function formatTime(total: number): string {
   const s = Math.max(0, Math.floor(total));
