@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import { useT } from "@/i18n";
@@ -69,7 +69,11 @@ export function PartyPlayer({
           bounces={false}
           automaticallyAdjustContentInsets={false}
           contentInsetAdjustmentBehavior="never"
-          allowsInlineMediaPlayback
+          // Android's WebView says it's a phone browser, and YouTube then serves
+      // its mobile player, which ignores controls: 0; a desktop user agent
+      // gets the chrome-free one. (iOS already gets it.)
+      userAgent={Platform.OS === "android" ? DESKTOP_UA : undefined}
+      allowsInlineMediaPlayback
           mediaPlaybackRequiresUserAction={false}
           allowsFullscreenVideo={false}
           onMessage={onMessage}
@@ -101,6 +105,8 @@ export function PartyPlayer({
     </View>
   );
 }
+
+const DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
 function page(key: string): string {
   const id = JSON.stringify(key);

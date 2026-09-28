@@ -9,6 +9,7 @@ import { displayName, inviteUrl, parsePartyCode, partyRoom } from "@/lib/party";
 import { useTitle } from "@/lib/queries";
 import { useWatchParty } from "@/lib/use-watch-party";
 import { useAuth } from "@/store/auth";
+import { READABLE_WIDTH } from "@/lib/layout";
 import { colors, radius } from "@/theme";
 
 function clock(seconds: number) {
@@ -69,75 +70,77 @@ function Party({ movieId, code }: { movieId: number; code: string | null }) {
 
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 44} style={styles.screen}>
-      <Stack.Screen options={{ headerTitle: movie.data?.title ?? t.party.header }} />
-      <View style={styles.top}>
-        <View style={styles.badges}>
-          <Text style={[styles.badge, code ? styles.private : styles.open]}>{code ? t.party.privateParty : t.party.openRoom}</Text>
-          <Text style={styles.people}>👥 {wp.people}</Text>
-          <View style={[styles.dot, { backgroundColor: wp.status === "open" ? "#22c55e" : wp.status === "connecting" ? colors.gold : colors.danger }]} />
-        </View>
-
-        {trailer ? (
-          <PartyPlayer videoKey={trailer} playback={wp.playback} onLocal={wp.sendPlayback} />
-        ) : (
-          <View style={[styles.noTrailer]}>
-            <Text style={styles.mute}>{movie.isPending ? t.party.loading : t.party.noTrailer}</Text>
+      <View style={styles.column}>
+        <Stack.Screen options={{ headerTitle: movie.data?.title ?? t.party.header }} />
+        <View style={styles.top}>
+          <View style={styles.badges}>
+            <Text style={[styles.badge, code ? styles.private : styles.open]}>{code ? t.party.privateParty : t.party.openRoom}</Text>
+            <Text style={styles.people}>👥 {wp.people}</Text>
+            <View style={[styles.dot, { backgroundColor: wp.status === "open" ? "#22c55e" : wp.status === "connecting" ? colors.gold : colors.danger }]} />
           </View>
-        )}
-        <Text style={styles.status}>{statusLine}</Text>
 
-        <View style={styles.actions}>
-          {code && (
-            <Pressable
-              onPress={() => void Share.share({ message: t.party.inviteMessage(inviteUrl(movieId, code)), url: inviteUrl(movieId, code) })}
-              style={({ pressed }) => [styles.primary, styles.flex, pressed && { opacity: 0.8 }]}
-            >
-              <Text style={styles.primaryText}>{t.party.invite}</Text>
-            </Pressable>
-          )}
-          {(wp.status === "closed" || wp.status === "error") && (
-            <Pressable onPress={wp.connect} style={({ pressed }) => [styles.secondary, styles.flex, pressed && { opacity: 0.8 }]}>
-              <Text style={styles.secondaryText}>{t.party.reconnect}</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
-
-      <FlatList
-        data={wp.feed}
-        keyExtractor={(f) => f.id}
-        style={styles.chat}
-        contentContainerStyle={{ padding: 16, gap: 8 }}
-        ListEmptyComponent={<Text style={styles.mute}>{t.party.empty}</Text>}
-        renderItem={({ item }) =>
-          item.kind === "system" ? (
-            <Text style={styles.system}>
-              {item.note === "error" ? item.text : (item.note === "joined" ? t.party.joined : t.party.left)(displayName(item.userId, wp.me, t))}
-            </Text>
+          {trailer ? (
+            <PartyPlayer videoKey={trailer} playback={wp.playback} onLocal={wp.sendPlayback} />
           ) : (
-            <View style={[styles.msg, item.userId === wp.me && styles.mine]}>
-              <Text style={styles.who}>{displayName(item.userId, wp.me, t)}</Text>
-              <Text style={styles.msgText}>{item.text}</Text>
+            <View style={[styles.noTrailer]}>
+              <Text style={styles.mute}>{movie.isPending ? t.party.loading : t.party.noTrailer}</Text>
             </View>
-          )
-        }
-      />
+          )}
+          <Text style={styles.status}>{statusLine}</Text>
 
-      <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          placeholder={t.party.message}
-          placeholderTextColor={colors.dim}
-          style={styles.input}
-          onSubmitEditing={(e) => send(e.nativeEvent.text)}
-          returnKeyType="send"
-          maxLength={500}
-          editable={wp.status === "open"}
+          <View style={styles.actions}>
+            {code && (
+              <Pressable
+                onPress={() => void Share.share({ message: t.party.inviteMessage(inviteUrl(movieId, code)), url: inviteUrl(movieId, code) })}
+                style={({ pressed }) => [styles.primary, styles.flex, pressed && { opacity: 0.8 }]}
+              >
+                <Text style={styles.primaryText}>{t.party.invite}</Text>
+              </Pressable>
+            )}
+            {(wp.status === "closed" || wp.status === "error") && (
+              <Pressable onPress={wp.connect} style={({ pressed }) => [styles.secondary, styles.flex, pressed && { opacity: 0.8 }]}>
+                <Text style={styles.secondaryText}>{t.party.reconnect}</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        <FlatList
+          data={wp.feed}
+          keyExtractor={(f) => f.id}
+          style={styles.chat}
+          contentContainerStyle={{ padding: 16, gap: 8 }}
+          ListEmptyComponent={<Text style={styles.mute}>{t.party.empty}</Text>}
+          renderItem={({ item }) =>
+            item.kind === "system" ? (
+              <Text style={styles.system}>
+                {item.note === "error" ? item.text : (item.note === "joined" ? t.party.joined : t.party.left)(displayName(item.userId, wp.me, t))}
+              </Text>
+            ) : (
+              <View style={[styles.msg, item.userId === wp.me && styles.mine]}>
+                <Text style={styles.who}>{displayName(item.userId, wp.me, t)}</Text>
+                <Text style={styles.msgText}>{item.text}</Text>
+              </View>
+            )
+          }
         />
-        <Pressable onPress={() => send()} disabled={!draft.trim() || wp.status !== "open"} style={({ pressed }) => [styles.send, (!draft.trim() || wp.status !== "open") && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}>
-          <Text style={styles.sendText}>↑</Text>
-        </Pressable>
+
+        <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            placeholder={t.party.message}
+            placeholderTextColor={colors.dim}
+            style={styles.input}
+            onSubmitEditing={(e) => send(e.nativeEvent.text)}
+            returnKeyType="send"
+            maxLength={500}
+            editable={wp.status === "open"}
+          />
+          <Pressable onPress={() => send()} disabled={!draft.trim() || wp.status !== "open"} style={({ pressed }) => [styles.send, (!draft.trim() || wp.status !== "open") && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}>
+            <Text style={styles.sendText}>↑</Text>
+          </Pressable>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -145,6 +148,7 @@ function Party({ movieId, code }: { movieId: number; code: string | null }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
+  column: { flex: 1, width: "100%", maxWidth: READABLE_WIDTH, alignSelf: "center" },
   center: { alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
   title: { color: colors.text, fontSize: 24, fontWeight: "800" },
   mute: { color: colors.mute, textAlign: "center" },

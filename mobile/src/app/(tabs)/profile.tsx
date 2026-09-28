@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { TitleRow } from "@/components/title-row";
 import { API_URL } from "@/lib/api";
+import { READABLE_WIDTH } from "@/lib/layout";
 import { useLocale, useT } from "@/i18n";
 import { useLibrary, useMyRatings } from "@/lib/queries";
 import { useAuth } from "@/store/auth";
@@ -25,6 +26,7 @@ export default function Profile() {
   if (!username) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + 12 }]}>
+        <View style={styles.column}>
         <Text style={styles.heading}>{t.profile.title}</Text>
         <View style={[styles.card, { marginHorizontal: 16 }]}>
           <Text style={styles.name}>{t.profile.pitch}</Text>
@@ -34,6 +36,7 @@ export default function Profile() {
           </Pressable>
         </View>
         <LanguagePicker />
+        </View>
       </View>
     );
   }
@@ -44,7 +47,7 @@ export default function Profile() {
   const profileUrl = `${SITE}/u/${encodeURIComponent(username)}`;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 110 }}>
+    <ScrollView style={styles.screen} contentContainerStyle={[styles.column, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 110 }]}>
       <Text style={styles.heading}>{t.profile.title}</Text>
       <View style={[styles.card, { marginHorizontal: 16 }]}>
         <View style={styles.avatar}>
@@ -107,6 +110,7 @@ function Stat({ value, label }: { value: number; label: string }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
+  column: { width: "100%", maxWidth: READABLE_WIDTH, alignSelf: "center" },
   heading: { color: colors.text, fontSize: 32, fontWeight: "800", marginBottom: 16, marginHorizontal: 16 },
   card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: 20, alignItems: "center", borderWidth: 1, borderColor: colors.border },
   avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.gold, alignItems: "center", justifyContent: "center" },

@@ -1,10 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DarkTheme, Stack, ThemeProvider } from "expo-router";
+import * as ScreenOrientation from "expo-screen-orientation";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
+import { useWindowDimensions } from "react-native";
 
 import { useLocale, useT } from "@/i18n";
+import { TABLET_MIN_SIDE } from "@/lib/layout";
 import { useAuth } from "@/store/auth";
 import { colors } from "@/theme";
 
@@ -18,6 +21,14 @@ export default function RootLayout() {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 1 } } }));
   const ready = useAuth((s) => s.ready);
   const { t } = useT();
+  const { width, height } = useWindowDimensions();
+  const tablet = Math.min(width, height) >= TABLET_MIN_SIDE;
+
+  // Phones stay upright (the feed and the hero are built for it); tablets
+  // turn freely, and every screen lays itself out for the window.
+  useEffect(() => {
+    void (tablet ? ScreenOrientation.unlockAsync() : ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP)).catch(() => {});
+  }, [tablet]);
 
   useEffect(() => {
     void useAuth.getState().restore();

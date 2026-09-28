@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet } from "react-native";
+import { Platform, StyleSheet } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 /** YouTube player states (IFrame Player API). */
@@ -63,6 +63,10 @@ export function TrailerPlayer({
       automaticallyAdjustContentInsets={false}
       contentInsetAdjustmentBehavior="never"
       bounces={false}
+      // Android's WebView says it's a phone browser, and YouTube then serves
+      // its mobile player, which ignores controls: 0; a desktop user agent
+      // gets the chrome-free one. (iOS already gets it.)
+      userAgent={Platform.OS === "android" ? DESKTOP_UA : undefined}
       allowsInlineMediaPlayback
       mediaPlaybackRequiresUserAction={false}
       allowsFullscreenVideo={false}
@@ -72,6 +76,8 @@ export function TrailerPlayer({
     />
   );
 }
+
+const DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
 function page(key: string, muted: boolean): string {
   const id = JSON.stringify(key);

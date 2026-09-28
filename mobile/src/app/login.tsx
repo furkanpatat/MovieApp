@@ -5,6 +5,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Pressable, StyleSheet, Text, T
 import { ApiError } from "@/lib/api";
 import { useT } from "@/i18n";
 import { useSignIn } from "@/lib/queries";
+import { READABLE_WIDTH } from "@/lib/layout";
 import { colors, radius } from "@/theme";
 
 /** Sign in or create an account (the same account as the web app). */
@@ -82,7 +83,7 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg, padding: 24, paddingTop: 36 },
+  screen: { flex: 1, backgroundColor: colors.bg, padding: 24, paddingTop: 36, width: "100%", maxWidth: READABLE_WIDTH, alignSelf: "center" },
   heading: { color: colors.text, fontSize: 28, fontWeight: "800" },
   form: { marginTop: 20, gap: 12 },
   input: { backgroundColor: colors.card, color: colors.text, borderRadius: radius.md, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, borderWidth: 1, borderColor: colors.border },

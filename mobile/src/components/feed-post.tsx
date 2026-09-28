@@ -2,7 +2,7 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { SymbolView, type SFSymbol } from "expo-symbols";
+import { SymbolView, type AndroidSymbol, type SFSymbol } from "expo-symbols";
 import { memo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -88,7 +88,7 @@ export const FeedPost = memo(function FeedPost({
       <Pressable style={StyleSheet.absoluteFill} onPress={() => setPaused((p) => !p)} accessibilityLabel={paused ? t.discover.play : t.discover.pause}>
         {paused && (
           <View style={styles.pauseBadge}>
-            <Glyph name="play.fill" fallback="▶" size={40} />
+            <Glyph ios="play.fill" android="play_arrow" size={40} />
           </View>
         )}
       </Pressable>
@@ -116,13 +116,13 @@ export const FeedPost = memo(function FeedPost({
 
       <View style={[styles.rail, { bottom: insets.bottom + 86 }]}>
         <RailButton label={isLiked ? t.discover.liked : t.discover.like} onPress={onLike}>
-          <Glyph name={isLiked ? "heart.fill" : "heart"} fallback="♥" tint={isLiked ? "#f43f5e" : colors.text} />
+          <Glyph ios={isLiked ? "heart.fill" : "heart"} android="favorite" tint={isLiked ? "#f43f5e" : colors.text} />
         </RailButton>
         <RailButton label={muted ? t.discover.soundOff : t.discover.soundOn} onPress={toggleMuted}>
-          <Glyph name={muted ? "speaker.slash.fill" : "speaker.wave.2.fill"} fallback={muted ? "🔇" : "🔊"} />
+          <Glyph ios={muted ? "speaker.slash.fill" : "speaker.wave.2.fill"} android={muted ? "volume_off" : "volume_up"} />
         </RailButton>
         <RailButton label={t.discover.details} onPress={() => openTitle(movie, media)}>
-          <Glyph name="info.circle" fallback="i" />
+          <Glyph ios="info.circle" android="info" />
         </RailButton>
       </View>
     </View>
@@ -137,14 +137,15 @@ function RailButton({ label, onPress, children }: { label: string; onPress: () =
   );
 }
 
-function Glyph({ name, fallback, tint = colors.text, size = 30 }: { name: SFSymbol; fallback: string; tint?: string; size?: number }) {
-  return <SymbolView name={name} tintColor={tint} size={size} fallback={<Text style={{ color: tint, fontSize: size * 0.8 }}>{fallback}</Text>} />;
+/** SF Symbols on iOS, Material Symbols on Android. */
+function Glyph({ ios, android, tint = colors.text, size = 30 }: { ios: SFSymbol; android: AndroidSymbol; tint?: string; size?: number }) {
+  return <SymbolView name={{ ios, android }} tintColor={tint} size={size} />;
 }
 
 const styles = StyleSheet.create({
   hidden: { opacity: 0 },
   pauseBadge: { position: "absolute", top: "45%", alignSelf: "center", width: 84, height: 84, borderRadius: 42, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
-  info: { position: "absolute", left: 16, right: 84 },
+  info: { position: "absolute", left: 16, right: 84, maxWidth: 620 },
   title: { color: colors.text, fontSize: 26, fontWeight: "800", letterSpacing: -0.5, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 8 },
   meta: { color: colors.gold, fontWeight: "700", marginTop: 6 },
   overview: { color: "#d4d4d8", marginTop: 6, lineHeight: 20 },

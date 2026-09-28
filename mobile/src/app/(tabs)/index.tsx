@@ -1,12 +1,13 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LogoSwitch } from "@/components/logo-switch";
 import { openTitle } from "@/components/poster-card";
 import { TitleRow } from "@/components/title-row";
 import { useT } from "@/i18n";
+import { useLayout } from "@/lib/layout";
 import { useGenre, usePopular } from "@/lib/queries";
 import { backdropUrl } from "@/lib/tmdb";
 import { useMode } from "@/store/mode";
@@ -29,9 +30,9 @@ export default function Home() {
   const { t } = useT();
   const popular = usePopular(mode);
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const layout = useLayout();
   const hero = popular.data?.results.find((m) => m.backdrop_path);
-  const heroHeight = Math.round(width * 1.25);
+  const heroHeight = layout.hero;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 120 }} contentInsetAdjustmentBehavior="never">
@@ -40,11 +41,11 @@ export default function Home() {
           <Image source={{ uri: backdropUrl(hero.backdrop_path, "w1280")! }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} />
         )}
         <LinearGradient colors={["rgba(9,9,11,0.7)", "transparent", "rgba(9,9,11,0.2)", colors.bg]} locations={[0, 0.25, 0.6, 1]} style={StyleSheet.absoluteFill} />
-        <View style={[styles.top, { paddingTop: insets.top + 8 }]}>
+        <View style={[styles.top, { paddingTop: insets.top + 8, left: layout.gutter }]}>
           <LogoSwitch />
         </View>
         {hero && (
-          <View style={styles.heroText}>
+          <View style={[styles.heroText, { left: layout.gutter, maxWidth: Math.min(layout.width - layout.gutter * 2, 640) }]}>
             <Text style={styles.heroTitle} numberOfLines={2}>
               {hero.title}
             </Text>
@@ -73,7 +74,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   top: { position: "absolute", left: 16, right: 16 },
-  heroText: { position: "absolute", left: 16, right: 16, bottom: 12 },
+  heroText: { position: "absolute", bottom: 12 },
   heroTitle: { color: colors.text, fontSize: 34, fontWeight: "800", letterSpacing: -0.8 },
   heroMeta: { color: colors.gold, fontWeight: "700", marginTop: 6 },
   heroOverview: { color: colors.mute, marginTop: 8, lineHeight: 20 },

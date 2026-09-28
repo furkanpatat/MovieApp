@@ -1,4 +1,5 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { Platform } from "react-native";
 
 import { useT } from "@/i18n";
 import { colors } from "@/theme";
@@ -9,7 +10,19 @@ import { colors } from "@/theme";
 export default function TabLayout() {
   const { t } = useT();
   return (
-    <NativeTabs tintColor={colors.gold} iconColor={{ default: colors.mute, selected: colors.gold }}>
+    <NativeTabs
+      tintColor={colors.gold}
+      iconColor={{ default: colors.mute, selected: colors.gold }}
+      // Android's Material bar, in the app's colors (iOS keeps its glass):
+      // the dark background, a soft gold pill, every label shown.
+      {...(Platform.OS === "android" && {
+        backgroundColor: colors.bg,
+        indicatorColor: "rgba(251,191,36,0.16)",
+        rippleColor: "rgba(251,191,36,0.12)",
+        labelVisibilityMode: "labeled" as const,
+        labelStyle: { default: { color: colors.mute }, selected: { color: colors.gold } },
+      })}
+    >
       <NativeTabs.Trigger name="index" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Label>{t.tabs.home}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: "house", selected: "house.fill" }} md={{ default: "home", selected: "home_filled" }} />

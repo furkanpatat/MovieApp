@@ -1,19 +1,21 @@
 import { FlatList, StyleSheet, Text, View } from "react-native";
 
 import { PosterCard } from "@/components/poster-card";
+import { useLayout } from "@/lib/layout";
 import { colors } from "@/theme";
 import type { MediaType, Movie } from "@/types/movie";
 
 /** A titled, horizontally scrolling row of posters (with a shimmer-free
  *  placeholder while loading). */
 export function TitleRow({ title, items, mode, loading }: { title: string; items?: Movie[]; mode: MediaType; loading?: boolean }) {
+  const { poster, gutter } = useLayout();
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>{title}</Text>
+      <Text style={[styles.title, { marginLeft: gutter }]}>{title}</Text>
       {loading ? (
-        <View style={styles.skeletons}>
+        <View style={[styles.skeletons, { paddingHorizontal: gutter }]}>
           {[0, 1, 2, 3].map((i) => (
-            <View key={i} style={styles.skeleton} />
+            <View key={i} style={[styles.skeleton, { width: poster, height: poster * 1.5 }]} />
           ))}
         </View>
       ) : (
@@ -21,8 +23,8 @@ export function TitleRow({ title, items, mode, loading }: { title: string; items
           horizontal
           data={items?.filter((m) => m.poster_path) ?? []}
           keyExtractor={(m) => String(m.id)}
-          renderItem={({ item }) => <PosterCard movie={item} mode={mode} />}
-          contentContainerStyle={styles.list}
+          renderItem={({ item }) => <PosterCard movie={item} mode={mode} width={poster} />}
+          contentContainerStyle={{ paddingHorizontal: gutter }}
           ItemSeparatorComponent={() => <View style={{ width: 10 }} />}
           showsHorizontalScrollIndicator={false}
         />
@@ -33,8 +35,7 @@ export function TitleRow({ title, items, mode, loading }: { title: string; items
 
 const styles = StyleSheet.create({
   wrap: { marginTop: 22 },
-  title: { color: colors.text, fontSize: 18, fontWeight: "700", marginLeft: 16, marginBottom: 10 },
-  list: { paddingHorizontal: 16 },
-  skeletons: { flexDirection: "row", gap: 10, paddingHorizontal: 16 },
-  skeleton: { width: 118, height: 177, borderRadius: 10, backgroundColor: colors.card },
+  title: { color: colors.text, fontSize: 18, fontWeight: "700", marginBottom: 10 },
+  skeletons: { flexDirection: "row", gap: 10 },
+  skeleton: { borderRadius: 10, backgroundColor: colors.card },
 });

@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, FlatList, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PosterCard } from "@/components/poster-card";
 import { useT } from "@/i18n";
+import { useLayout } from "@/lib/layout";
 import { useSearch } from "@/lib/queries";
 import { useMode } from "@/store/mode";
 import { colors, radius } from "@/theme";
@@ -15,8 +16,8 @@ export default function Search() {
   const [q, setQ] = useState("");
   const results = useSearch(mode, q);
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const cardWidth = Math.floor((width - 16 * 2 - 10 * 2) / 3);
+  const { width, gutter, columns } = useLayout();
+  const cardWidth = Math.floor((width - gutter * 2 - 10 * (columns - 1)) / columns);
   const items = results.data?.results.filter((m) => m.poster_path) ?? [];
 
   return (
@@ -37,9 +38,11 @@ export default function Search() {
       <FlatList
         data={items}
         keyExtractor={(m) => String(m.id)}
-        numColumns={3}
+        // A new column count needs a new list (FlatList can't change it live).
+        key={columns}
+        numColumns={columns}
         columnWrapperStyle={{ gap: 10 }}
-        contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 120 }}
+        contentContainerStyle={{ gap: 10, paddingHorizontal: gutter, paddingTop: 16, paddingBottom: 120 }}
         renderItem={({ item }) => <PosterCard movie={item} mode={mode} width={cardWidth} />}
         keyboardDismissMode="on-drag"
         ListEmptyComponent={
