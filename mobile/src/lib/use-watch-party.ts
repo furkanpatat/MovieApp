@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API_URL } from "@/lib/api";
-import { displayName, SITE } from "@/lib/party";
+import { SITE } from "@/lib/party";
 import { useAuth } from "@/store/auth";
 import type { ConnectionStatus, FeedItem, PlaybackAction, PlaybackState, ServerEvent } from "@/types/watch-party";
 
@@ -70,14 +70,14 @@ export function useWatchParty(room: string) {
         }
         case "user_joined":
           setMembers((m) => ({ ...m, [e.user_id]: (m[e.user_id] ?? 0) + 1 }));
-          if (e.user_id !== userId) push({ kind: "system", id: feedId(), at: e.sent_at, text: `${displayName(e.user_id, userId)} joined` });
+          if (e.user_id !== userId) push({ kind: "system", id: feedId(), at: e.sent_at, note: "joined", userId: e.user_id });
           break;
         case "user_left":
           setMembers((m) => ({ ...m, [e.user_id]: Math.max(0, (m[e.user_id] ?? 0) - 1) }));
-          if (e.user_id !== userId) push({ kind: "system", id: feedId(), at: e.sent_at, text: `${displayName(e.user_id, userId)} left` });
+          if (e.user_id !== userId) push({ kind: "system", id: feedId(), at: e.sent_at, note: "left", userId: e.user_id });
           break;
         case "error":
-          push({ kind: "system", id: feedId(), at: new Date().toISOString(), text: e.message });
+          push({ kind: "system", id: feedId(), at: new Date().toISOString(), note: "error", text: e.message });
           break;
       }
     };

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
+import { useT } from "@/i18n";
 import { SITE } from "@/lib/party";
 import { colors } from "@/theme";
 import type { PlaybackAction, PlaybackState } from "@/types/watch-party";
@@ -27,6 +28,7 @@ export function PartyPlayer({
   onLocal: (action: PlaybackAction, position: number) => void;
 }) {
   const ref = useRef<WebView>(null);
+  const { t } = useT();
   const [ready, setReady] = useState(false);
   const [tick, setTick] = useState({ t: 0, d: 0, playing: false });
   const html = useMemo(() => page(videoKey), [videoKey]);
@@ -76,7 +78,7 @@ export function PartyPlayer({
           style={StyleSheet.absoluteFill}
           onPress={() => ref.current?.injectJavaScript("window.toggle(); true;")}
           accessibilityRole="button"
-          accessibilityLabel={tick.playing ? "Pause for everyone" : "Play for everyone"}
+          accessibilityLabel={tick.playing ? t.party.pauseAll : t.party.playAll}
         >
           {!tick.playing && ready && (
             <View style={styles.playBadge}>
@@ -86,7 +88,7 @@ export function PartyPlayer({
         </Pressable>
         {!ready && (
           <View style={[StyleSheet.absoluteFill, styles.loading]}>
-            <Text style={styles.loadingText}>Loading trailer…</Text>
+            <Text style={styles.loadingText}>{t.party.loadingTrailer}</Text>
           </View>
         )}
       </View>

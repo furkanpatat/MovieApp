@@ -4,6 +4,7 @@ import { FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, Text, Tex
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PartyPlayer } from "@/components/party-player";
+import { useT } from "@/i18n";
 import { displayName, inviteUrl, parsePartyCode, partyRoom } from "@/lib/party";
 import { useTitle } from "@/lib/queries";
 import { useWatchParty } from "@/lib/use-watch-party";
@@ -25,14 +26,15 @@ export default function PartyScreen() {
   const movieId = Number(params.id);
   const code = parsePartyCode(params.code);
   const signedIn = useAuth((s) => !!s.token);
+  const { t } = useT();
 
   if (!signedIn) {
     return (
       <View style={[styles.screen, styles.center]}>
-        <Text style={styles.title}>Watch together</Text>
-        <Text style={styles.mute}>Sign in to join a watch party.</Text>
+        <Text style={styles.title}>{t.title.watchTogether}</Text>
+        <Text style={styles.mute}>{t.party.signIn}</Text>
         <Pressable onPress={() => router.push("/login")} style={styles.primary}>
-          <Text style={styles.primaryText}>Sign in</Text>
+          <Text style={styles.primaryText}>{t.common.signIn}</Text>
         </Pressable>
       </View>
     );
@@ -42,6 +44,7 @@ export default function PartyScreen() {
 
 function Party({ movieId, code }: { movieId: number; code: string | null }) {
   const insets = useSafeAreaInsets();
+  const { t } = useT();
   const movie = useTitle("movie", movieId);
   const wp = useWatchParty(partyRoom(movieId, code));
   const [draft, setDraft] = useState("");
@@ -58,18 +61,18 @@ function Party({ movieId, code }: { movieId: number; code: string | null }) {
   const statusLine =
     wp.status === "open"
       ? wp.lastEvent
-        ? `${displayName(wp.lastEvent.user_id, wp.me)} ${wp.lastEvent.action === "pause" ? "paused" : "pressed play"} at ${clock(wp.lastEvent.timestamp)}`
-        : "Press play to start it for everyone."
+        ? (wp.lastEvent.action === "pause" ? t.party.paused : t.party.pressedPlay)(displayName(wp.lastEvent.user_id, wp.me, t), clock(wp.lastEvent.timestamp))
+        : t.party.pressPlay
       : wp.status === "connecting"
-        ? "Connecting…"
-        : "Not connected.";
+        ? t.party.connecting
+        : t.party.disconnected;
 
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={insets.top + 44} style={styles.screen}>
-      <Stack.Screen options={{ headerTitle: movie.data?.title ?? "Watch Party" }} />
+      <Stack.Screen options={{ headerTitle: movie.data?.title ?? t.party.header }} />
       <View style={styles.top}>
         <View style={styles.badges}>
-          <Text style={[styles.badge, code ? styles.private : styles.open]}>{code ? "🔒 Private party" : "🌐 Open room"}</Text>
+          <Text style={[styles.badge, code ? styles.private : styles.open]}>{code ? t.party.privateParty : t.party.openRoom}</Text>
           <Text style={styles.people}>👥 {wp.people}</Text>
           <View style={[styles.dot, { backgroundColor: wp.status === "open" ? "#22c55e" : wp.status === "connecting" ? colors.gold : colors.danger }]} />
         </View>
@@ -78,7 +81,7 @@ function Party({ movieId, code }: { movieId: number; code: string | null }) {
           <PartyPlayer videoKey={trailer} playback={wp.playback} onLocal={wp.sendPlayback} />
         ) : (
           <View style={[styles.noTrailer]}>
-            <Text style={styles.mute}>{movie.isPending ? "Loading…" : "This title has no trailer to watch together."}</Text>
+            <Text style={styles.mute}>{movie.isPending ? t.party.loading : t.party.noTrailer}</Text>
           </View>
         )}
         <Text style={styles.status}>{statusLine}</Text>
@@ -86,15 +89,15 @@ function Party({ movieId, code }: { movieId: number; code: string | null }) {
         <View style={styles.actions}>
           {code && (
             <Pressable
-              onPress={() => void Share.share({ message: `Watch with me on KinoCut: ${inviteUrl(movieId, code)}`, url: inviteUrl(movieId, code) })}
+              onPress={() => void Share.share({ message: t.party.inviteMessage(inviteUrl(movieId, code)), url: inviteUrl(movieId, code) })}
               style={({ pressed }) => [styles.primary, styles.flex, pressed && { opacity: 0.8 }]}
             >
-              <Text style={styles.primaryText}>Invite friends</Text>
+              <Text style={styles.primaryText}>{t.party.invite}</Text>
             </Pressable>
           )}
           {(wp.status === "closed" || wp.status === "error") && (
             <Pressable onPress={wp.connect} style={({ pressed }) => [styles.secondary, styles.flex, pressed && { opacity: 0.8 }]}>
-              <Text style={styles.secondaryText}>Reconnect</Text>
+              <Text style={styles.secondaryText}>{t.party.reconnect}</Text>
             </Pressable>
           )}
         </View>
@@ -105,13 +108,15 @@ function Party({ movieId, code }: { movieId: number; code: string | null }) {
         keyExtractor={(f) => f.id}
         style={styles.chat}
         contentContainerStyle={{ padding: 16, gap: 8 }}
-        ListEmptyComponent={<Text style={styles.mute}>Say hi — messages go to everyone in the room.</Text>}
+        ListEmptyComponent={<Text style={styles.mute}>{t.party.empty}</Text>}
         renderItem={({ item }) =>
           item.kind === "system" ? (
-            <Text style={styles.system}>{item.text}</Text>
+            <Text style={styles.system}>
+              {item.note === "error" ? item.text : (item.note === "joined" ? t.party.joined : t.party.left)(displayName(item.userId, wp.me, t))}
+            </Text>
           ) : (
             <View style={[styles.msg, item.userId === wp.me && styles.mine]}>
-              <Text style={styles.who}>{displayName(item.userId, wp.me)}</Text>
+              <Text style={styles.who}>{displayName(item.userId, wp.me, t)}</Text>
               <Text style={styles.msgText}>{item.text}</Text>
             </View>
           )
@@ -122,7 +127,7 @@ function Party({ movieId, code }: { movieId: number; code: string | null }) {
         <TextInput
           value={draft}
           onChangeText={setDraft}
-          placeholder="Send a message…"
+          placeholder={t.party.message}
           placeholderTextColor={colors.dim}
           style={styles.input}
           onSubmitEditing={(e) => send(e.nativeEvent.text)}

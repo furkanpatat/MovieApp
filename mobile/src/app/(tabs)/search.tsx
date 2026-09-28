@@ -3,6 +3,7 @@ import { ActivityIndicator, FlatList, StyleSheet, Text, TextInput, useWindowDime
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PosterCard } from "@/components/poster-card";
+import { useT } from "@/i18n";
 import { useSearch } from "@/lib/queries";
 import { useMode } from "@/store/mode";
 import { colors, radius } from "@/theme";
@@ -10,6 +11,7 @@ import { colors, radius } from "@/theme";
 /** Search the current mode (movies or series) as you type. */
 export default function Search() {
   const mode = useMode((s) => s.mode);
+  const { t } = useT();
   const [q, setQ] = useState("");
   const results = useSearch(mode, q);
   const insets = useSafeAreaInsets();
@@ -19,11 +21,11 @@ export default function Search() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + 12 }]}>
-      <Text style={styles.heading}>Search</Text>
+      <Text style={styles.heading}>{t.search.title}</Text>
       <TextInput
         value={q}
         onChangeText={setQ}
-        placeholder={mode === "tv" ? "Search series…" : "Search movies…"}
+        placeholder={mode === "tv" ? t.search.series : t.search.movies}
         placeholderTextColor={colors.dim}
         style={styles.input}
         autoCorrect={false}
@@ -41,7 +43,7 @@ export default function Search() {
         renderItem={({ item }) => <PosterCard movie={item} mode={mode} width={cardWidth} />}
         keyboardDismissMode="on-drag"
         ListEmptyComponent={
-          q.trim().length >= 2 && !results.isFetching ? <Text style={styles.empty}>No results for “{q.trim()}”.</Text> : null
+          q.trim().length >= 2 && !results.isFetching ? <Text style={styles.empty}>{t.search.none(q.trim())}</Text> : null
         }
       />
     </View>

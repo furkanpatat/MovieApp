@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LogoSwitch } from "@/components/logo-switch";
 import { openTitle } from "@/components/poster-card";
 import { TitleRow } from "@/components/title-row";
+import { useT } from "@/i18n";
 import { useGenre, usePopular } from "@/lib/queries";
 import { backdropUrl } from "@/lib/tmdb";
 import { useMode } from "@/store/mode";
@@ -13,19 +14,9 @@ import { colors } from "@/theme";
 import type { MediaType } from "@/types/movie";
 
 // TMDB genre ids differ between movies and TV.
-const ROWS: Record<MediaType, { title: string; genre: number }[]> = {
-  movie: [
-    { title: "Action", genre: 28 },
-    { title: "Sci-Fi", genre: 878 },
-    { title: "Comedy", genre: 35 },
-    { title: "Horror", genre: 27 },
-  ],
-  tv: [
-    { title: "Action & Adventure", genre: 10759 },
-    { title: "Sci-Fi & Fantasy", genre: 10765 },
-    { title: "Comedy", genre: 35 },
-    { title: "Crime", genre: 80 },
-  ],
+const ROWS: Record<MediaType, number[]> = {
+  movie: [28, 878, 35, 27],
+  tv: [10759, 10765, 35, 80],
 };
 
 function GenreRow({ mode, title, genre }: { mode: MediaType; title: string; genre: number }) {
@@ -35,6 +26,7 @@ function GenreRow({ mode, title, genre }: { mode: MediaType; title: string; genr
 
 export default function Home() {
   const mode = useMode((s) => s.mode);
+  const { t } = useT();
   const popular = usePopular(mode);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -63,17 +55,17 @@ export default function Home() {
               {hero.overview}
             </Text>
             <Pressable onPress={() => openTitle(hero, mode)} style={({ pressed }) => [styles.cta, pressed && { opacity: 0.8 }]}>
-              <Text style={styles.ctaText}>More info</Text>
+              <Text style={styles.ctaText}>{t.home.moreInfo}</Text>
             </Pressable>
           </View>
         )}
       </View>
 
-      <TitleRow title={mode === "tv" ? "Trending Series" : "Trending Now"} items={popular.data?.results} mode={mode} loading={popular.isPending} />
-      {ROWS[mode].map((r) => (
-        <GenreRow key={`${mode}-${r.genre}`} mode={mode} title={r.title} genre={r.genre} />
+      <TitleRow title={mode === "tv" ? t.home.trendingSeries : t.home.trendingMovies} items={popular.data?.results} mode={mode} loading={popular.isPending} />
+      {ROWS[mode].map((genre) => (
+        <GenreRow key={`${mode}-${genre}`} mode={mode} title={t.home.genres[genre]} genre={genre} />
       ))}
-      {popular.isError && <Text style={styles.error}>Couldn&apos;t reach KinoCut. Check your connection.</Text>}
+      {popular.isError && <Text style={styles.error}>{t.home.offline}</Text>}
     </ScrollView>
   );
 }

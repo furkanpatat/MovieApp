@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ApiError } from "@/lib/api";
+import { useT } from "@/i18n";
 import { useSignIn } from "@/lib/queries";
 import { colors, radius } from "@/theme";
 
@@ -13,6 +14,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const m = useSignIn();
+  const { t } = useT();
 
   const submit = () =>
     m.mutate(
@@ -23,21 +25,21 @@ export default function Login() {
   const error =
     m.error instanceof ApiError
       ? m.error.status === 401
-        ? "Wrong username or password."
+        ? t.login.wrong
         : m.error.status === 429
-          ? "Too many attempts. Try again in a minute."
+          ? t.login.tooMany
           : m.error.message
       : m.error
-        ? "Couldn't reach KinoCut."
+        ? t.common.unreachable
         : null;
 
   return (
     <KeyboardAvoidingView behavior="padding" style={styles.screen}>
-      <Text style={styles.heading}>{register ? "Create account" : "Welcome back"}</Text>
+      <Text style={styles.heading}>{register ? t.login.create : t.login.welcome}</Text>
       <View style={styles.form}>
         <TextInput
           style={styles.input}
-          placeholder={register ? "Username" : "Username or email"}
+          placeholder={register ? t.login.username : t.login.usernameOrEmail}
           placeholderTextColor={colors.dim}
           autoCapitalize="none"
           autoCorrect={false}
@@ -48,7 +50,7 @@ export default function Login() {
         {register && (
           <TextInput
             style={styles.input}
-            placeholder="Email"
+            placeholder={t.login.email}
             placeholderTextColor={colors.dim}
             autoCapitalize="none"
             keyboardType="email-address"
@@ -59,7 +61,7 @@ export default function Login() {
         )}
         <TextInput
           style={styles.input}
-          placeholder="Password"
+          placeholder={t.login.password}
           placeholderTextColor={colors.dim}
           secureTextEntry
           textContentType={register ? "newPassword" : "password"}
@@ -69,10 +71,10 @@ export default function Login() {
         />
         {error && <Text style={styles.error}>{error}</Text>}
         <Pressable onPress={submit} disabled={m.isPending} style={({ pressed }) => [styles.primary, (pressed || m.isPending) && { opacity: 0.8 }]}>
-          {m.isPending ? <ActivityIndicator color={colors.onGold} /> : <Text style={styles.primaryText}>{register ? "Sign up" : "Sign in"}</Text>}
+          {m.isPending ? <ActivityIndicator color={colors.onGold} /> : <Text style={styles.primaryText}>{register ? t.login.signUp : t.common.signIn}</Text>}
         </Pressable>
         <Pressable onPress={() => (setRegister((r) => !r), m.reset())} hitSlop={8}>
-          <Text style={styles.switch}>{register ? "Have an account? Sign in" : "New here? Create an account"}</Text>
+          <Text style={styles.switch}>{register ? t.login.toSignIn : t.login.toSignUp}</Text>
         </Pressable>
       </View>
     </KeyboardAvoidingView>

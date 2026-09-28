@@ -4,6 +4,7 @@ import { ActivityIndicator, FlatList, StyleSheet, Text, useWindowDimensions, Vie
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FeedPost } from "@/components/feed-post";
+import { useT } from "@/i18n";
 import { useDiscoverFeed, useMyRatings } from "@/lib/queries";
 import { useMode } from "@/store/mode";
 import { colors } from "@/theme";
@@ -16,6 +17,7 @@ import type { Movie } from "@/types/movie";
  */
 export default function Discover() {
   const mode = useMode((s) => s.mode);
+  const { t } = useT();
   const feed = useDiscoverFeed(mode);
   const ratings = useMyRatings();
   const { height } = useWindowDimensions();
@@ -56,7 +58,7 @@ export default function Discover() {
   });
 
   if (feed.isPending) return <ActivityIndicator style={styles.center} color={colors.gold} />;
-  if (feed.isError) return <Text style={[styles.center, styles.error]}>Couldn&apos;t load the feed.</Text>;
+  if (feed.isError) return <Text style={[styles.center, styles.error]}>{t.discover.failed}</Text>;
 
   return (
     <View style={styles.screen}>
@@ -89,8 +91,8 @@ export default function Discover() {
         onEndReachedThreshold={2}
       />
       <View style={[styles.header, { top: insets.top + 8 }]} pointerEvents="none">
-        <Text style={styles.headerText}>For You</Text>
-        <Text style={styles.headerMode}>{mode === "tv" ? "Series" : "Movies"}</Text>
+        <Text style={styles.headerText}>{t.discover.forYou}</Text>
+        <Text style={styles.headerMode}>{mode === "tv" ? t.common.series : t.common.movies}</Text>
       </View>
     </View>
   );

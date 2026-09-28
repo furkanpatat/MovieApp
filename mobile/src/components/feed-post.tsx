@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { openTitle } from "@/components/poster-card";
 import { TrailerPlayer } from "@/components/trailer-player";
+import { useT } from "@/i18n";
 import { useLike, useTitle } from "@/lib/queries";
 import { backdropUrl, posterUrl } from "@/lib/tmdb";
 import { useAuth } from "@/store/auth";
@@ -37,6 +38,7 @@ export const FeedPost = memo(function FeedPost({
   liked: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const { t } = useT();
   const media = movie.media_type ?? mode;
   const details = useTitle(media, movie.id, near);
   const { muted, toggleMuted } = useFeed();
@@ -83,7 +85,7 @@ export const FeedPost = memo(function FeedPost({
         </View>
       )}
 
-      <Pressable style={StyleSheet.absoluteFill} onPress={() => setPaused((p) => !p)} accessibilityLabel={paused ? "Play" : "Pause"}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={() => setPaused((p) => !p)} accessibilityLabel={paused ? t.discover.play : t.discover.pause}>
         {paused && (
           <View style={styles.pauseBadge}>
             <Glyph name="play.fill" fallback="▶" size={40} />
@@ -105,7 +107,7 @@ export const FeedPost = memo(function FeedPost({
         <Text style={styles.meta}>
           ★ {movie.vote_average.toFixed(1)}
           {year ? `  ·  ${year}` : ""}
-          {media === "tv" ? "  ·  Series" : ""}
+          {media === "tv" ? `  ·  ${t.common.series}` : ""}
         </Text>
         <Text style={styles.overview} numberOfLines={3}>
           {details.data?.overview || movie.overview}
@@ -113,13 +115,13 @@ export const FeedPost = memo(function FeedPost({
       </View>
 
       <View style={[styles.rail, { bottom: insets.bottom + 86 }]}>
-        <RailButton label={isLiked ? "Liked" : "Like"} onPress={onLike}>
+        <RailButton label={isLiked ? t.discover.liked : t.discover.like} onPress={onLike}>
           <Glyph name={isLiked ? "heart.fill" : "heart"} fallback="♥" tint={isLiked ? "#f43f5e" : colors.text} />
         </RailButton>
-        <RailButton label={muted ? "Sound off" : "Sound on"} onPress={toggleMuted}>
+        <RailButton label={muted ? t.discover.soundOff : t.discover.soundOn} onPress={toggleMuted}>
           <Glyph name={muted ? "speaker.slash.fill" : "speaker.wave.2.fill"} fallback={muted ? "🔇" : "🔊"} />
         </RailButton>
-        <RailButton label="Details" onPress={() => openTitle(movie, media)}>
+        <RailButton label={t.discover.details} onPress={() => openTitle(movie, media)}>
           <Glyph name="info.circle" fallback="i" />
         </RailButton>
       </View>

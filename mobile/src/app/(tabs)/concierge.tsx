@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Markdown } from "@/components/markdown";
 import { PosterCard } from "@/components/poster-card";
 import { ApiError } from "@/lib/api";
-import { deviceLocale } from "@/lib/locale";
+import { useT } from "@/i18n";
 import { useChat, type ChatMessage } from "@/lib/queries";
 import { useAuth } from "@/store/auth";
 import { colors, radius } from "@/theme";
@@ -19,33 +19,10 @@ interface Turn extends ChatMessage {
   failed?: boolean;
 }
 
-const COPY = {
-  en: {
-    title: "Concierge",
-    sub: "Tell me a mood, a movie you loved, or who you're watching with.",
-    placeholder: "Ask for a recommendation…",
-    signIn: "Sign in to chat with the concierge.",
-    suggestions: ["Mind-bending sci-fi for tonight", "Something like Heat", "A feel-good comedy for two"],
-    failed: "Couldn't reach the concierge.",
-    limited: "Too many questions for now. Try again in a minute.",
-    retry: "Retry",
-  },
-  tr: {
-    title: "Asistan",
-    sub: "Bir ruh hâli, sevdiğin bir film ya da kiminle izleyeceğini söyle.",
-    placeholder: "Bir öneri iste…",
-    signIn: "Asistanla konuşmak için giriş yap.",
-    suggestions: ["Bu akşam için akıl yakan bir bilim kurgu", "Heat gibi bir film", "İki kişilik keyifli bir komedi"],
-    failed: "Asistana ulaşılamadı.",
-    limited: "Şimdilik çok fazla soru soruldu. Bir dakika sonra tekrar dene.",
-    retry: "Tekrar dene",
-  },
-} as const;
-
 /** The AI concierge: a chat whose picks are real, tappable titles. */
 export default function Concierge() {
-  const locale = deviceLocale();
-  const t = COPY[locale];
+  const { t: all, locale } = useT();
+  const t = all.concierge;
   const insets = useSafeAreaInsets();
   const signedIn = useAuth((s) => !!s.token);
   const chat = useChat();
@@ -157,7 +134,7 @@ export default function Concierge() {
             onPress={() => send(draft)}
             disabled={!draft.trim() || chat.isPending}
             style={({ pressed }) => [styles.send, (!draft.trim() || chat.isPending) && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}
-            accessibilityLabel="Send"
+            accessibilityLabel={t.send}
           >
             <Text style={styles.sendText}>↑</Text>
           </Pressable>

@@ -1,5 +1,7 @@
 import { getRandomBytes } from "expo-crypto";
 
+import type { Dictionary } from "@/i18n/en";
+
 /**
  * Watch parties, named exactly as on the web (web/src/lib/party.ts), so the
  * phone and the site meet in the same rooms: every movie has an open room
@@ -30,6 +32,6 @@ export function inviteUrl(movieId: number, code: string): string {
 }
 
 /** "You", or a short, stable label for someone else (as on the web). */
-export function displayName(userId: string, me: string | null): string {
-  return me && userId === me ? "You" : `User ${userId.slice(0, 8)}`;
+export function displayName(userId: string, me: string | null, t: Dictionary): string {
+  return me && userId === me ? t.common.you : t.common.user(userId.slice(0, 8));
 }

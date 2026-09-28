@@ -4,6 +4,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 
+import { useLocale, useT } from "@/i18n";
 import { useAuth } from "@/store/auth";
 import { colors } from "@/theme";
 
@@ -16,9 +17,11 @@ const theme = { ...DarkTheme, colors: { ...DarkTheme.colors, background: colors.
 export default function RootLayout() {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 1 } } }));
   const ready = useAuth((s) => s.ready);
+  const { t } = useT();
 
   useEffect(() => {
     void useAuth.getState().restore();
+    void useLocale.getState().restore();
   }, []);
   useEffect(() => {
     if (ready) void SplashScreen.hideAsync();
@@ -36,7 +39,7 @@ export default function RootLayout() {
           />
           <Stack.Screen
             name="party/[id]"
-            options={{ headerTitle: "Watch Party", headerBackButtonDisplayMode: "minimal", headerTintColor: colors.text, headerStyle: { backgroundColor: colors.bg } }}
+            options={{ headerTitle: t.party.header, headerBackButtonDisplayMode: "minimal", headerTintColor: colors.text, headerStyle: { backgroundColor: colors.bg } }}
           />
           <Stack.Screen name="login" options={{ presentation: "formSheet", headerShown: false, sheetGrabberVisible: true, sheetAllowedDetents: [0.75] }} />
         </Stack>

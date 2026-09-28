@@ -6,6 +6,7 @@ import * as WebBrowser from "expo-web-browser";
 import { useMemo } from "react";
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
+import { useT } from "@/i18n";
 import { newPartyCode } from "@/lib/party";
 import { useLibrary, useTitle, useToggleLibrary } from "@/lib/queries";
 import { backdropUrl, posterUrl, profileUrl } from "@/lib/tmdb";
@@ -33,6 +34,7 @@ function parseCast(json?: string): CastMember[] {
 
 /** My List and Watched for one title, synced with the web library. */
 function LibraryButtons({ movie, media }: { movie: Movie; media: MediaType }) {
+  const { t } = useT();
   const signedIn = useAuth((s) => !!s.token);
   const { list, watched } = useLibrary();
   const toggleList = useToggleLibrary("watchlist");
@@ -52,10 +54,10 @@ function LibraryButtons({ movie, media }: { movie: Movie; media: MediaType }) {
   return (
     <View style={styles.libRow}>
       <Pressable onPress={() => press(toggleList, !saved)} style={({ pressed }) => [styles.libButton, saved && styles.libOn, pressed && { opacity: 0.8 }]}>
-        <Text style={[styles.libText, saved && styles.libTextOn]}>{saved ? "✓ In My List" : "+ My List"}</Text>
+        <Text style={[styles.libText, saved && styles.libTextOn]}>{saved ? t.title.inList : t.title.addToList}</Text>
       </Pressable>
       <Pressable onPress={() => press(toggleWatched, !seen)} style={({ pressed }) => [styles.libButton, seen && styles.libOn, pressed && { opacity: 0.8 }]}>
-        <Text style={[styles.libText, seen && styles.libTextOn]}>{seen ? "✓ Watched" : "Mark watched"}</Text>
+        <Text style={[styles.libText, seen && styles.libTextOn]}>{seen ? t.title.watched : t.title.markWatched}</Text>
       </Pressable>
     </View>
   );
@@ -65,13 +67,14 @@ function LibraryButtons({ movie, media }: { movie: Movie; media: MediaType }) {
 export default function TitleScreen() {
   const params = useLocalSearchParams<{ media: string; id: string }>();
   const media: MediaType = params.media === "tv" ? "tv" : "movie";
+  const { t: tr } = useT();
   const q = useTitle(media, Number(params.id));
   const { width } = useWindowDimensions();
   const t = q.data;
   const cast = useMemo(() => parseCast(t?.cast_json), [t?.cast_json]);
 
   if (q.isPending) return <ActivityIndicator style={styles.center} color={colors.gold} />;
-  if (q.isError || !t) return <Text style={[styles.center, styles.error]}>Couldn&apos;t load this title.</Text>;
+  if (q.isError || !t) return <Text style={[styles.center, styles.error]}>{tr.title.failed}</Text>;
 
   const backdrop = backdropUrl(t.backdrop_path, "w1280");
   const poster = posterUrl(t.poster_path, "w342");
@@ -79,7 +82,7 @@ export default function TitleScreen() {
   const facts = [
     year,
     media === "movie" && t.runtime ? `${Math.floor(t.runtime / 60)}h ${t.runtime % 60}m` : null,
-    media === "tv" && t.number_of_seasons ? `${t.number_of_seasons} season${t.number_of_seasons > 1 ? "s" : ""}` : null,
+    media === "tv" && t.number_of_seasons ? tr.title.seasons(t.number_of_seasons) : null,
     t.rated,
   ].filter(Boolean);
 
@@ -93,7 +96,7 @@ export default function TitleScreen() {
       <View style={styles.headRow}>
         {poster && <Image source={{ uri: poster }} style={styles.poster} contentFit="cover" />}
         <View style={{ flex: 1 }}>
-          {media === "tv" && <Text style={styles.badge}>SERIES</Text>}
+          {media === "tv" && <Text style={styles.badge}>{tr.title.series}</Text>}
           <Text style={styles.title}>{t.title}</Text>
           <Text style={styles.facts}>{facts.join(" · ")}</Text>
           <View style={styles.ratings}>
@@ -108,7 +111,7 @@ export default function TitleScreen() {
           onPress={() => void WebBrowser.openBrowserAsync(`https://www.youtube.com/watch?v=${t.trailer_key}`)}
           style={({ pressed }) => [styles.trailer, pressed && { opacity: 0.8 }]}
         >
-          <Text style={styles.trailerText}>▶  Play trailer</Text>
+          <Text style={styles.trailerText}>▶  {tr.title.playTrailer}</Text>
         </Pressable>
       )}
 
@@ -116,20 +119,20 @@ export default function TitleScreen() {
 
       {media === "movie" && t.trailer_key && (
         <View style={styles.party}>
-          <Text style={styles.partyTitle}>Watch together</Text>
-          <Text style={styles.partySub}>Play the trailer in sync with friends — on their phones or on the web — and chat.</Text>
+          <Text style={styles.partyTitle}>{tr.title.watchTogether}</Text>
+          <Text style={styles.partySub}>{tr.title.watchTogetherSub}</Text>
           <View style={styles.libRow}>
             <Pressable
               onPress={() => router.push({ pathname: "/party/[id]", params: { id: String(t.id), code: newPartyCode() } })}
               style={({ pressed }) => [styles.libButton, styles.libOn, pressed && { opacity: 0.8 }]}
             >
-              <Text style={[styles.libText, styles.libTextOn]}>🔒 Private party</Text>
+              <Text style={[styles.libText, styles.libTextOn]}>{tr.title.privateParty}</Text>
             </Pressable>
             <Pressable
               onPress={() => router.push({ pathname: "/party/[id]", params: { id: String(t.id) } })}
               style={({ pressed }) => [styles.libButton, pressed && { opacity: 0.8 }]}
             >
-              <Text style={styles.libText}>🌐 Open room</Text>
+              <Text style={styles.libText}>{tr.title.openRoom}</Text>
             </Pressable>
           </View>
         </View>
@@ -150,7 +153,7 @@ export default function TitleScreen() {
 
       {cast.length > 0 && (
         <>
-          <Text style={styles.section}>Top cast</Text>
+          <Text style={styles.section}>{tr.title.topCast}</Text>
           <FlatList
             horizontal
             data={cast}
@@ -181,7 +184,7 @@ export default function TitleScreen() {
 
       {(t.director || t.creators?.length) && (
         <Text style={styles.credit}>
-          {media === "tv" ? "Created by " : "Directed by "}
+          {media === "tv" ? tr.title.createdBy : tr.title.directedBy}
           <Text style={{ color: colors.text }}>{t.director ?? t.creators?.join(", ")}</Text>
         </Text>
       )}

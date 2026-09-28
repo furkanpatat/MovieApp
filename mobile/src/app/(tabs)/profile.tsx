@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { TitleRow } from "@/components/title-row";
 import { API_URL } from "@/lib/api";
+import { useLocale, useT } from "@/i18n";
 import { useLibrary, useMyRatings } from "@/lib/queries";
 import { useAuth } from "@/store/auth";
 import { colors, radius } from "@/theme";
@@ -16,6 +17,7 @@ const SITE = "https://kinora.duckdns.org";
  *  likes, and a link to share your profile. */
 export default function Profile() {
   const { username, signOut } = useAuth();
+  const { t } = useT();
   const insets = useSafeAreaInsets();
   const { list, watched } = useLibrary();
   const ratings = useMyRatings();
@@ -23,14 +25,15 @@ export default function Profile() {
   if (!username) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.heading}>Profile</Text>
+        <Text style={styles.heading}>{t.profile.title}</Text>
         <View style={[styles.card, { marginHorizontal: 16 }]}>
-          <Text style={styles.name}>Your list, ratings and watch parties</Text>
-          <Text style={styles.sub}>Sign in with your KinoCut account (the same one as on the web).</Text>
+          <Text style={styles.name}>{t.profile.pitch}</Text>
+          <Text style={styles.sub}>{t.profile.pitchSub}</Text>
           <Pressable onPress={() => router.push("/login")} style={({ pressed }) => [styles.primary, pressed && { opacity: 0.8 }]}>
-            <Text style={styles.primaryText}>Sign in</Text>
+            <Text style={styles.primaryText}>{t.common.signIn}</Text>
           </Pressable>
         </View>
+        <LanguagePicker />
       </View>
     );
   }
@@ -42,35 +45,54 @@ export default function Profile() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 110 }}>
-      <Text style={styles.heading}>Profile</Text>
+      <Text style={styles.heading}>{t.profile.title}</Text>
       <View style={[styles.card, { marginHorizontal: 16 }]}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{username[0].toUpperCase()}</Text>
         </View>
         <Text style={styles.name}>{username}</Text>
         <View style={styles.stats}>
-          <Stat value={watchedMovies.length} label="Watched" />
-          <Stat value={listMovies.length} label="My List" />
-          <Stat value={likes} label="Liked" />
+          <Stat value={watchedMovies.length} label={t.profile.watched} />
+          <Stat value={listMovies.length} label={t.profile.myList} />
+          <Stat value={likes} label={t.profile.liked} />
         </View>
         <Pressable
-          onPress={() => void Share.share({ message: `What I watch on KinoCut: ${profileUrl}`, url: profileUrl })}
+          onPress={() => void Share.share({ message: t.profile.shareMessage(profileUrl), url: profileUrl })}
           style={({ pressed }) => [styles.primary, pressed && { opacity: 0.8 }]}
         >
-          <Text style={styles.primaryText}>Share my profile</Text>
+          <Text style={styles.primaryText}>{t.profile.share}</Text>
         </Pressable>
       </View>
 
-      <TitleRow title="Watched" items={watchedMovies} mode="movie" loading={watched.isPending} />
-      {!watched.isPending && watchedMovies.length === 0 && <Text style={styles.empty}>Mark titles as watched from their details.</Text>}
-      <TitleRow title="My List" items={listMovies} mode="movie" loading={list.isPending} />
-      {!list.isPending && listMovies.length === 0 && <Text style={styles.empty}>Save titles to watch later from their details.</Text>}
+      <TitleRow title={t.profile.watched} items={watchedMovies} mode="movie" loading={watched.isPending} />
+      {!watched.isPending && watchedMovies.length === 0 && <Text style={styles.empty}>{t.profile.watchedEmpty}</Text>}
+      <TitleRow title={t.profile.myList} items={listMovies} mode="movie" loading={list.isPending} />
+      {!list.isPending && listMovies.length === 0 && <Text style={styles.empty}>{t.profile.listEmpty}</Text>}
 
+      <LanguagePicker />
       <Pressable onPress={() => void signOut()} style={({ pressed }) => [styles.secondary, pressed && { opacity: 0.8 }]}>
-        <Text style={styles.secondaryText}>Sign out</Text>
+        <Text style={styles.secondaryText}>{t.profile.signOut}</Text>
       </Pressable>
       <Text style={styles.server}>{API_URL.replace(/^https?:\/\//, "")}</Text>
     </ScrollView>
+  );
+}
+
+/** English | Türkçe, kept on the device. */
+function LanguagePicker() {
+  const { t, locale } = useT();
+  const setLocale = useLocale((s) => s.setLocale);
+  return (
+    <View style={styles.langRow}>
+      <Text style={styles.langLabel}>{t.profile.language}</Text>
+      <View style={styles.segment}>
+        {(["en", "tr"] as const).map((l) => (
+          <Pressable key={l} onPress={() => setLocale(l)} style={[styles.segItem, locale === l && styles.segOn]} accessibilityRole="radio" accessibilityState={{ checked: locale === l }}>
+            <Text style={[styles.segText, locale === l && styles.segTextOn]}>{l === "en" ? "English" : "Türkçe"}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -100,5 +122,12 @@ const styles = StyleSheet.create({
   secondary: { marginTop: 28, marginHorizontal: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingVertical: 12, alignItems: "center" },
   secondaryText: { color: colors.text, fontWeight: "700" },
   empty: { color: colors.dim, marginHorizontal: 16, marginTop: -4 },
+  langRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginHorizontal: 16, marginTop: 24 },
+  langLabel: { color: colors.text, fontWeight: "700", fontSize: 16 },
+  segment: { flexDirection: "row", backgroundColor: colors.card, borderRadius: 999, padding: 3, borderWidth: 1, borderColor: colors.border },
+  segItem: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999 },
+  segOn: { backgroundColor: colors.gold },
+  segText: { color: colors.mute, fontWeight: "700" },
+  segTextOn: { color: colors.onGold },
   server: { color: colors.dim, textAlign: "center", marginTop: 16, fontSize: 12 },
 });

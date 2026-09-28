@@ -27,4 +27,5 @@ export type ConnectionStatus = "idle" | "connecting" | "open" | "closed" | "erro
 
 export type FeedItem =
   | { kind: "chat"; id: string; userId: string; text: string; at: string }
-  | { kind: "system"; id: string; at: string; text: string };
+  | { kind: "system"; id: string; at: string; note: "joined" | "left"; userId: string }
+  | { kind: "system"; id: string; at: string; note: "error"; text: string };
