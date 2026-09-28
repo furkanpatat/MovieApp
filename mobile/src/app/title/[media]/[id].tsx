@@ -1,0 +1,161 @@
+import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import { useMemo } from "react";
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+
+import { useTitle } from "@/lib/queries";
+import { backdropUrl, posterUrl, profileUrl } from "@/lib/tmdb";
+import { colors, radius } from "@/theme";
+import type { MediaType } from "@/types/movie";
+
+interface CastMember {
+  id: number;
+  name: string;
+  character?: string;
+  profile_path?: string | null;
+}
+
+/** cast_json is TMDB's credits.cast, stored verbatim by the catalog. */
+function parseCast(json?: string): CastMember[] {
+  if (!json) return [];
+  try {
+    const raw: unknown = JSON.parse(json);
+    return Array.isArray(raw) ? (raw as CastMember[]).filter((c) => c && c.name).slice(0, 15) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** A movie or series: backdrop, poster, facts, trailer and cast. */
+export default function TitleScreen() {
+  const params = useLocalSearchParams<{ media: string; id: string }>();
+  const media: MediaType = params.media === "tv" ? "tv" : "movie";
+  const q = useTitle(media, Number(params.id));
+  const { width } = useWindowDimensions();
+  const t = q.data;
+  const cast = useMemo(() => parseCast(t?.cast_json), [t?.cast_json]);
+
+  if (q.isPending) return <ActivityIndicator style={styles.center} color={colors.gold} />;
+  if (q.isError || !t) return <Text style={[styles.center, styles.error]}>Couldn&apos;t load this title.</Text>;
+
+  const backdrop = backdropUrl(t.backdrop_path, "w1280");
+  const poster = posterUrl(t.poster_path, "w342");
+  const year = t.release_date?.slice(0, 4);
+  const facts = [
+    year,
+    media === "movie" && t.runtime ? `${Math.floor(t.runtime / 60)}h ${t.runtime % 60}m` : null,
+    media === "tv" && t.number_of_seasons ? `${t.number_of_seasons} season${t.number_of_seasons > 1 ? "s" : ""}` : null,
+    t.rated,
+  ].filter(Boolean);
+
+  return (
+    <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 60 }}>
+      <View style={{ height: width * 0.75 }}>
+        {backdrop && <Image source={{ uri: backdrop }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />}
+        <LinearGradient colors={["rgba(9,9,11,0.55)", "transparent", colors.bg]} locations={[0, 0.35, 1]} style={StyleSheet.absoluteFill} />
+      </View>
+
+      <View style={styles.headRow}>
+        {poster && <Image source={{ uri: poster }} style={styles.poster} contentFit="cover" />}
+        <View style={{ flex: 1 }}>
+          {media === "tv" && <Text style={styles.badge}>SERIES</Text>}
+          <Text style={styles.title}>{t.title}</Text>
+          <Text style={styles.facts}>{facts.join(" · ")}</Text>
+          <View style={styles.ratings}>
+            {t.imdb_rating ? <Text style={styles.imdb}>IMDb {t.imdb_rating.toFixed(1)}</Text> : null}
+            <Text style={styles.tmdb}>★ {t.vote_average.toFixed(1)}</Text>
+          </View>
+        </View>
+      </View>
+
+      {t.trailer_key && (
+        <Pressable
+          onPress={() => void WebBrowser.openBrowserAsync(`https://www.youtube.com/watch?v=${t.trailer_key}`)}
+          style={({ pressed }) => [styles.trailer, pressed && { opacity: 0.8 }]}
+        >
+          <Text style={styles.trailerText}>▶  Play trailer</Text>
+        </Pressable>
+      )}
+
+      {t.genres && t.genres.length > 0 && (
+        <View style={styles.chips}>
+          {t.genres.map((g) => (
+            <Text key={g.id} style={styles.chip}>
+              {g.name}
+            </Text>
+          ))}
+        </View>
+      )}
+
+      {t.tagline ? <Text style={styles.tagline}>“{t.tagline}”</Text> : null}
+      <Text style={styles.overview}>{t.overview}</Text>
+
+      {cast.length > 0 && (
+        <>
+          <Text style={styles.section}>Top cast</Text>
+          <FlatList
+            horizontal
+            data={cast}
+            keyExtractor={(c) => String(c.id)}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+            renderItem={({ item }) => {
+              const uri = profileUrl(item.profile_path);
+              return (
+                <View style={styles.castItem}>
+                  <View style={styles.castPhoto}>
+                    {uri ? <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Text style={styles.castInitial}>{item.name[0]}</Text>}
+                  </View>
+                  <Text style={styles.castName} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  {item.character ? (
+                    <Text style={styles.castRole} numberOfLines={1}>
+                      {item.character}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            }}
+          />
+        </>
+      )}
+
+      {(t.director || t.creators?.length) && (
+        <Text style={styles.credit}>
+          {media === "tv" ? "Created by " : "Directed by "}
+          <Text style={{ color: colors.text }}>{t.director ?? t.creators?.join(", ")}</Text>
+        </Text>
+      )}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, marginTop: 120, alignSelf: "center" },
+  error: { color: colors.danger },
+  headRow: { flexDirection: "row", gap: 14, paddingHorizontal: 16, marginTop: -90 },
+  poster: { width: 110, height: 165, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border },
+  badge: { color: colors.gold, fontSize: 11, fontWeight: "800", letterSpacing: 1.5, marginTop: 40 },
+  title: { color: colors.text, fontSize: 26, fontWeight: "800", letterSpacing: -0.5, marginTop: 4 },
+  facts: { color: colors.mute, marginTop: 6 },
+  ratings: { flexDirection: "row", gap: 10, marginTop: 8, alignItems: "center" },
+  imdb: { backgroundColor: colors.gold, color: colors.onGold, fontWeight: "900", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: "hidden", fontSize: 12 },
+  tmdb: { color: colors.text, fontWeight: "700" },
+  trailer: { marginHorizontal: 16, marginTop: 18, backgroundColor: colors.gold, borderRadius: 999, paddingVertical: 13, alignItems: "center" },
+  trailerText: { color: colors.onGold, fontWeight: "800", fontSize: 16 },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, marginTop: 16 },
+  chip: { color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5, fontSize: 13, overflow: "hidden" },
+  tagline: { color: colors.gold, fontStyle: "italic", paddingHorizontal: 16, marginTop: 16 },
+  overview: { color: colors.mute, lineHeight: 22, paddingHorizontal: 16, marginTop: 10, fontSize: 15 },
+  section: { color: colors.text, fontSize: 18, fontWeight: "700", marginLeft: 16, marginTop: 24, marginBottom: 12 },
+  castItem: { width: 84 },
+  castPhoto: { width: 84, height: 84, borderRadius: 42, overflow: "hidden", backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
+  castInitial: { color: colors.mute, fontSize: 24, fontWeight: "700" },
+  castName: { color: colors.text, fontSize: 12, fontWeight: "600", marginTop: 6, textAlign: "center" },
+  castRole: { color: colors.dim, fontSize: 11, textAlign: "center" },
+  credit: { color: colors.mute, paddingHorizontal: 16, marginTop: 20 },
+});
