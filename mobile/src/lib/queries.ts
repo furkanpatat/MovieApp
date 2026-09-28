@@ -2,7 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { api } from "@/lib/api";
 import { useAuth } from "@/store/auth";
-import type { ListResponse, UserRating } from "@/types/library";
+import type { ListResponse, UserRating, WatchedItem, WatchlistItem } from "@/types/library";
 import type { MediaType, Movie, MoviePage } from "@/types/movie";
 
 const seg = (m: MediaType) => (m === "tv" ? "tv" : "movies");
@@ -108,5 +108,55 @@ export function useLike() {
       ]);
     },
     onSettled: () => client.invalidateQueries({ queryKey: ["me", "ratings"] }),
+  });
+}
+
+/** The signed-in user's library: My List and Watched. */
+export function useLibrary() {
+  const token = useAuth((s) => s.token);
+  const list = useQuery({
+    queryKey: ["me", "watchlist", token],
+    queryFn: () => api<ListResponse<WatchlistItem>>("/api/v1/watchlist"),
+    enabled: !!token,
+  });
+  const watched = useQuery({
+    queryKey: ["me", "watched", token],
+    queryFn: () => api<ListResponse<WatchedItem>>("/api/v1/watched"),
+    enabled: !!token,
+  });
+  return { list, watched };
+}
+
+/** Add to or remove from My List / Watched (same endpoints as the web). */
+export function useToggleLibrary(kind: "watchlist" | "watched") {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ movie, media, on }: { movie: Movie; media: MediaType; on: boolean }) =>
+      on
+        ? api(`/api/v1/${kind}`, { method: "POST", body: { media_type: media, movie_id: movie.id } })
+        : api(`/api/v1/${kind}/${movie.id}?media_type=${media}`, { method: "DELETE" }),
+    onSettled: () => client.invalidateQueries({ queryKey: ["me", kind] }),
+  });
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatReply {
+  message: string;
+  movies: Movie[];
+  /** The model was busy: picks from keywords instead. */
+  fallback?: boolean;
+  demo?: boolean;
+}
+
+/** The AI concierge: POST /api/v1/chat (signed in), in the user's language. */
+export function useChat() {
+  return useMutation({
+    mutationFn: (body: { messages: ChatMessage[]; locale: "en" | "tr" }) =>
+      api<ChatReply>("/api/v1/chat", { method: "POST", body }),
+    retry: false,
   });
 }

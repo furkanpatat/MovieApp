@@ -2,10 +2,9 @@ import { NativeTabs } from "expo-router/unstable-native-tabs";
 
 import { colors } from "@/theme";
 
-/** The four tabs, on the platform's own tab bar (Liquid Glass on iOS).
- *  Home, Discover and Search lay out their own insets (Home's hero and
- *  Discover's feed run under the status bar), so the automatic ScrollView
- *  insets are off there. */
+/** The five tabs, on the platform's own tab bar (Liquid Glass on iOS).
+ *  Every screen lays out its own insets (Home's hero and Discover's feed
+ *  run under the status bar), so the automatic ScrollView insets are off. */
 export default function TabLayout() {
   return (
     <NativeTabs tintColor={colors.gold} iconColor={{ default: colors.mute, selected: colors.gold }}>
@@ -17,11 +16,15 @@ export default function TabLayout() {
         <NativeTabs.Trigger.Label>Discover</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: "play.rectangle", selected: "play.rectangle.fill" }} md={{ default: "smart_display", selected: "smart_display" }} />
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="concierge" disableAutomaticContentInsets>
+        <NativeTabs.Trigger.Label>Ask AI</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="sparkles" md="auto_awesome" />
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="search" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="profile">
+      <NativeTabs.Trigger name="profile" disableAutomaticContentInsets>
         <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: "person.crop.circle", selected: "person.crop.circle.fill" }} md={{ default: "account_circle", selected: "account_circle" }} />
       </NativeTabs.Trigger>

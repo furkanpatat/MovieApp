@@ -1,14 +1,16 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams } from "expo-router";
+import * as Haptics from "expo-haptics";
+import { router, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useMemo } from "react";
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
-import { useTitle } from "@/lib/queries";
+import { useLibrary, useTitle, useToggleLibrary } from "@/lib/queries";
 import { backdropUrl, posterUrl, profileUrl } from "@/lib/tmdb";
+import { useAuth } from "@/store/auth";
 import { colors, radius } from "@/theme";
-import type { MediaType } from "@/types/movie";
+import type { MediaType, Movie } from "@/types/movie";
 
 interface CastMember {
   id: number;
@@ -28,7 +30,37 @@ function parseCast(json?: string): CastMember[] {
   }
 }
 
-/** A movie or series: backdrop, poster, facts, trailer and cast. */
+/** My List and Watched for one title, synced with the web library. */
+function LibraryButtons({ movie, media }: { movie: Movie; media: MediaType }) {
+  const signedIn = useAuth((s) => !!s.token);
+  const { list, watched } = useLibrary();
+  const toggleList = useToggleLibrary("watchlist");
+  const toggleWatched = useToggleLibrary("watched");
+  const same = (m: Movie) => m.id === movie.id && (m.media_type ?? "movie") === media;
+  const inList = !!list.data?.items.some((i) => same(i.movie as Movie));
+  const isWatched = !!watched.data?.items.some((i) => same(i.movie as Movie));
+  const saved = toggleList.isPending ? toggleList.variables?.on : inList;
+  const seen = toggleWatched.isPending ? toggleWatched.variables?.on : isWatched;
+
+  const press = (toggle: typeof toggleList, on: boolean) => {
+    if (!signedIn) return router.push("/login");
+    void Haptics.selectionAsync();
+    toggle.mutate({ movie, media, on });
+  };
+
+  return (
+    <View style={styles.libRow}>
+      <Pressable onPress={() => press(toggleList, !saved)} style={({ pressed }) => [styles.libButton, saved && styles.libOn, pressed && { opacity: 0.8 }]}>
+        <Text style={[styles.libText, saved && styles.libTextOn]}>{saved ? "✓ In My List" : "+ My List"}</Text>
+      </Pressable>
+      <Pressable onPress={() => press(toggleWatched, !seen)} style={({ pressed }) => [styles.libButton, seen && styles.libOn, pressed && { opacity: 0.8 }]}>
+        <Text style={[styles.libText, seen && styles.libTextOn]}>{seen ? "✓ Watched" : "Mark watched"}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** A movie or series: backdrop, poster, facts, trailer, library and cast. */
 export default function TitleScreen() {
   const params = useLocalSearchParams<{ media: string; id: string }>();
   const media: MediaType = params.media === "tv" ? "tv" : "movie";
@@ -78,6 +110,8 @@ export default function TitleScreen() {
           <Text style={styles.trailerText}>▶  Play trailer</Text>
         </Pressable>
       )}
+
+      <LibraryButtons movie={t} media={media} />
 
       {t.genres && t.genres.length > 0 && (
         <View style={styles.chips}>
@@ -147,6 +181,11 @@ const styles = StyleSheet.create({
   tmdb: { color: colors.text, fontWeight: "700" },
   trailer: { marginHorizontal: 16, marginTop: 18, backgroundColor: colors.gold, borderRadius: 999, paddingVertical: 13, alignItems: "center" },
   trailerText: { color: colors.onGold, fontWeight: "800", fontSize: 16 },
+  libRow: { flexDirection: "row", gap: 10, marginHorizontal: 16, marginTop: 10 },
+  libButton: { flex: 1, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, borderRadius: 999, paddingVertical: 11, alignItems: "center" },
+  libOn: { borderColor: "rgba(251,191,36,0.6)", backgroundColor: "rgba(251,191,36,0.12)" },
+  libText: { color: colors.text, fontWeight: "700" },
+  libTextOn: { color: colors.gold },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, marginTop: 16 },
   chip: { color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5, fontSize: 13, overflow: "hidden" },
   tagline: { color: colors.gold, fontStyle: "italic", paddingHorizontal: 16, marginTop: 16 },
