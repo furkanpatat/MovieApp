@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { toSession, type SessionResponse } from "@/lib/session";
 import { useAuth } from "@/store/auth";
 import type { ListResponse, UserRating, WatchedItem, WatchlistItem } from "@/types/library";
-import type { MediaType, Movie, MoviePage } from "@/types/movie";
+import type { Comment, Interactions, MediaType, Movie, MoviePage } from "@/types/movie";
 
 const seg = (m: MediaType) => (m === "tv" ? "tv" : "movies");
 
@@ -189,5 +189,45 @@ export function useChat() {
     mutationFn: (body: { messages: ChatMessage[]; locale: "en" | "tr" }) =>
       api<ChatReply>("/api/v1/chat", { method: "POST", body }),
     retry: false,
+  });
+}
+
+/** A title's public votes and latest comments (the CQRS read model):
+ *  GET /api/v1/{movies,tv}/{id}/interactions. */
+export function useInteractions(media: MediaType, id: number, enabled = true) {
+  return useQuery({
+    queryKey: ["interactions", media, id],
+    queryFn: () => api<Interactions>(`/api/v1/${seg(media)}/${id}/interactions`, { auth: false }),
+    enabled,
+    // The read model catches up within about a second of a write.
+    staleTime: 5_000,
+  });
+}
+
+/**
+ * Post a comment (202: the write is queued, the read model follows). It
+ * shows at once (optimistic, marked pending), and the list is refetched
+ * shortly after to pick up the stored one.
+ */
+export function useComment(media: MediaType, id: number) {
+  const client = useQueryClient();
+  const userId = useAuth((s) => s.userId);
+  const key = ["interactions", media, id];
+  return useMutation({
+    mutationFn: (text: string) => api(`/api/v1/${seg(media)}/${id}/comment`, { method: "POST", body: { text } }),
+    onMutate: async (text) => {
+      await client.cancelQueries({ queryKey: key });
+      const optimistic: Comment & { pending?: boolean } = {
+        id: `pending-${Date.now()}`,
+        user_id: userId ?? "",
+        text,
+        created_at: new Date().toISOString(),
+        pending: true,
+      };
+      client.setQueryData<Interactions>(key, (old) =>
+        old ? { ...old, recent_comments: [optimistic, ...old.recent_comments] } : old,
+      );
+    },
+    onSettled: () => setTimeout(() => void client.invalidateQueries({ queryKey: key }), 1200),
   });
 }

@@ -1,11 +1,13 @@
 import { useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import * as ScreenOrientation from "expo-screen-orientation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, useWindowDimensions, View, type ViewToken } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FeedPost } from "@/components/feed-post";
 import { GenrePicker } from "@/components/genre-picker";
 import { useT } from "@/i18n";
+import { TABLET_MIN_SIDE } from "@/lib/layout";
 import { useDiscoverFeed, useMyRatings } from "@/lib/queries";
 import { useFeed } from "@/store/feed";
 import { useMode } from "@/store/mode";
@@ -26,16 +28,32 @@ export default function Discover() {
   const setGenre = useFeed((s) => s.setGenre);
   const feed = useDiscoverFeed(mode, seed, genre);
   const ratings = useMyRatings();
-  const { height } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const phone = Math.min(width, height) < TABLET_MIN_SIDE;
+  const list = useRef<FlatList<Movie>>(null);
   const insets = useSafeAreaInsets();
   const [active, setActive] = useState(0);
+  // Turned: pages change size, so snap back onto the post being watched.
+  const activeRef = useRef(0);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+  useEffect(() => {
+    list.current?.scrollToOffset({ offset: activeRef.current * height, animated: false });
+  }, [height]);
   const [focused, setFocused] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
       setFocused(true);
-      return () => setFocused(false);
-    }, []),
+      // Trailers are wide: on a phone (upright everywhere else, see the root
+      // layout) the feed may turn to landscape while it's on screen.
+      if (phone) void ScreenOrientation.unlockAsync().catch(() => {});
+      return () => {
+        setFocused(false);
+        if (phone) void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+      };
+    }, [phone]),
   );
 
   // Pages can repeat a title; keep the first, and only titles with a picture.
@@ -74,6 +92,7 @@ export default function Discover() {
         <Text style={[styles.center, styles.muted]}>{t.discover.empty}</Text>
       ) : (
       <FlatList
+        ref={list}
         key={`${mode}-${genre}-${seed}`}
         data={items}
         keyExtractor={(m) => `${m.media_type ?? mode}:${m.id}`}
@@ -113,7 +132,6 @@ export default function Discover() {
       )}
       <View style={[styles.header, { top: insets.top + 8 }]} pointerEvents="box-none">
         <GenrePicker mode={mode} value={genre} onChange={(id) => (setGenre(mode, id), setActive(0))} />
-        <Text style={styles.headerMode}>{mode === "tv" ? t.common.series : t.common.movies}</Text>
       </View>
     </View>
   );
@@ -129,5 +147,4 @@ const styles = StyleSheet.create({
   error: { color: colors.danger },
   header: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   muted: { color: colors.mute },
-  headerMode: { color: colors.gold, fontSize: 12, fontWeight: "700", marginTop: 6, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 6 },
 });

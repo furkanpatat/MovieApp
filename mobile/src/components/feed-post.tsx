@@ -4,13 +4,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { SymbolView, type AndroidSymbol, type SFSymbol } from "expo-symbols";
 import { memo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { CommentsSheet } from "@/components/comments-sheet";
 import { openTitle } from "@/components/poster-card";
 import { TrailerPlayer } from "@/components/trailer-player";
 import { useT } from "@/i18n";
-import { useLike, useTitle } from "@/lib/queries";
+import { useInteractions, useLike, useTitle } from "@/lib/queries";
 import { backdropUrl, posterUrl } from "@/lib/tmdb";
 import { useAuth } from "@/store/auth";
 import { useFeed } from "@/store/feed";
@@ -38,6 +39,10 @@ export const FeedPost = memo(function FeedPost({
   liked: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  // A phone on its side: little height, so the rail becomes a row at the
+  // bottom right and the overview a single line.
+  const win = useWindowDimensions();
+  const wide = win.width > win.height && win.height < 600;
   const { t } = useT();
   const media = movie.media_type ?? mode;
   const details = useTitle(media, movie.id, near);
@@ -47,6 +52,9 @@ export const FeedPost = memo(function FeedPost({
   const [paused, setPaused] = useState(false);
   const [started, setStarted] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const interactions = useInteractions(media, movie.id, near);
+  const commentCount = interactions.data?.recent_comments.length ?? 0;
 
   const trailer = details.data?.trailer_key;
   const still = backdropUrl(movie.backdrop_path, "w1280") ?? posterUrl(movie.poster_path, "w780");
@@ -100,7 +108,7 @@ export const FeedPost = memo(function FeedPost({
         pointerEvents="none"
       />
 
-      <View style={[styles.info, { bottom: insets.bottom + 78 }]} pointerEvents="box-none">
+      <View style={[styles.info, wide && styles.infoWide, { bottom: insets.bottom + TAB_BAR + 14, left: 16 + insets.left }]} pointerEvents="box-none">
         <Text style={styles.title} numberOfLines={2}>
           {movie.title}
         </Text>
@@ -109,14 +117,17 @@ export const FeedPost = memo(function FeedPost({
           {year ? `  ·  ${year}` : ""}
           {media === "tv" ? `  ·  ${t.common.series}` : ""}
         </Text>
-        <Text style={styles.overview} numberOfLines={3}>
+        <Text style={styles.overview} numberOfLines={wide ? 1 : 3}>
           {details.data?.overview || movie.overview}
         </Text>
       </View>
 
-      <View style={[styles.rail, { bottom: insets.bottom + 86 }]}>
+      <View style={[styles.rail, wide && styles.railWide, { bottom: insets.bottom + TAB_BAR + 18, right: 12 + insets.right }]}>
         <RailButton label={isLiked ? t.discover.liked : t.discover.like} onPress={onLike}>
           <Glyph ios={isLiked ? "heart.fill" : "heart"} android="favorite" tint={isLiked ? "#f43f5e" : colors.text} />
+        </RailButton>
+        <RailButton label={t.discover.comments} onPress={() => setCommentsOpen(true)} count={commentCount}>
+          <Glyph ios="bubble.right" android="chat_bubble" />
         </RailButton>
         <RailButton label={muted ? t.discover.soundOff : t.discover.soundOn} onPress={toggleMuted}>
           <Glyph ios={muted ? "speaker.slash.fill" : "speaker.wave.2.fill"} android={muted ? "volume_off" : "volume_up"} />
@@ -125,15 +136,20 @@ export const FeedPost = memo(function FeedPost({
           <Glyph ios="info.circle" android="info" />
         </RailButton>
       </View>
+
+      <CommentsSheet media={media} id={movie.id} title={movie.title} open={commentsOpen} onClose={() => setCommentsOpen(false)} />
     </View>
   );
 });
 
-function RailButton({ label, onPress, children }: { label: string; onPress: () => void; children: React.ReactNode }) {
+function RailButton({ label, onPress, count, children }: { label: string; onPress: () => void; count?: number; children: React.ReactNode }) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={8} style={({ pressed }) => [styles.railButton, pressed && { transform: [{ scale: 0.9 }] }]}>
-      {children}
-    </Pressable>
+    <View style={styles.railItem}>
+      <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={8} style={({ pressed }) => [styles.railButton, pressed && { transform: [{ scale: 0.9 }] }]}>
+        {children}
+      </Pressable>
+      {count !== undefined && <Text style={styles.railCount}>{count}</Text>}
+    </View>
   );
 }
 
@@ -142,13 +158,22 @@ function Glyph({ ios, android, tint = colors.text, size = 30 }: { ios: SFSymbol;
   return <SymbolView name={{ ios, android }} tintColor={tint} size={size} />;
 }
 
+/** The tab bar over the feed's bottom edge, beyond insets.bottom: iOS's
+ *  native tabs add their bar to the safe area already; Android's Material
+ *  navigation bar (80dp) isn't in it. */
+const TAB_BAR = Platform.OS === "android" ? 80 : 0;
+
 const styles = StyleSheet.create({
   hidden: { opacity: 0 },
   pauseBadge: { position: "absolute", top: "45%", alignSelf: "center", width: 84, height: 84, borderRadius: 42, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
-  info: { position: "absolute", left: 16, right: 84, maxWidth: 620 },
+  info: { position: "absolute", right: 84, maxWidth: 620 },
   title: { color: colors.text, fontSize: 26, fontWeight: "800", letterSpacing: -0.5, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 8 },
   meta: { color: colors.gold, fontWeight: "700", marginTop: 6 },
   overview: { color: "#d4d4d8", marginTop: 6, lineHeight: 20 },
-  rail: { position: "absolute", right: 12, gap: 18, alignItems: "center" },
+  rail: { position: "absolute", gap: 14, alignItems: "center" },
+  railWide: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  infoWide: { right: 300 },
+  railItem: { alignItems: "center", gap: 3 },
+  railCount: { color: colors.text, fontSize: 12, fontWeight: "700", textShadowColor: "rgba(0,0,0,0.7)", textShadowRadius: 4 },
   railButton: { width: 52, height: 52, borderRadius: 26, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },
 });
