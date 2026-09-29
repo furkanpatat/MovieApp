@@ -196,6 +196,23 @@ type ModerationStore interface {
 	UnblockUser(ctx context.Context, blockerID, blockedID string) error
 	// BlockedUsers lists the users blockerID has blocked.
 	BlockedUsers(ctx context.Context, blockerID string) ([]string, error)
+
+	// For the admin: the reported comments, most reported first.
+	ReportedComments(ctx context.Context, limit int) ([]ReportedComment, error)
+	// DeleteComment removes a comment (and, with it, its reports) and says
+	// which title it was on. ErrNotFound if there is no such comment.
+	DeleteComment(ctx context.Context, commentID string) (Title, error)
+	// DismissReports clears a comment's reports and keeps the comment. Idempotent.
+	DismissReports(ctx context.Context, commentID string) error
+}
+
+// ReportedComment is a comment somebody reported.
+type ReportedComment struct {
+	Comment
+	MediaType      string    `json:"media_type"`
+	MovieID        int       `json:"movie_id"`
+	Reports        int       `json:"reports"`
+	LastReportedAt time.Time `json:"last_reported_at"`
 }
 
 // ReadModel is the materialised query view (Redis).

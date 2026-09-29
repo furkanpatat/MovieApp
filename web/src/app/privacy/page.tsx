@@ -57,7 +57,7 @@ export default function PrivacyPage() {
         </p>
         <p>
           Comments must be civil. You can report any comment, or block its author to hide all their comments, from the
-          menu next to it. We review reports and remove comments and accounts that break these rules.
+          menu next to it. We review reports and remove comments that break these rules.
         </p>
       </Section>
 

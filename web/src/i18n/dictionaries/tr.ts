@@ -298,6 +298,9 @@ export const tr: Dictionary = {
     recentFirst: "en son eklenen en üstte",
   },
   profile: {
+    blockedTitle: "Engellenen kullanıcılar",
+    blockedNote: "Yorumlarını görmüyorsun.",
+    unblock: "Engeli kaldır",
     deleteAccount: "Hesabı sil",
     deleteWarning: "Bu işlem hesabını, puanlarını, yorumlarını, listeni ve izlediklerini kalıcı olarak siler. Geri alınamaz.",
     deleteConfirm: "Onaylamak için şifreni gir",

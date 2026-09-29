@@ -11,9 +11,14 @@ import (
 
 // Moderation is what keeps user comments in check: reporting a comment and
 // blocking a user. Reports are reviewed by hand (see init.sql).
-type Moderation struct{ store domain.ModerationStore }
+type Moderation struct {
+	store domain.ModerationStore
+	rm    domain.ReadModel
+}
 
-func NewModeration(store domain.ModerationStore) *Moderation { return &Moderation{store: store} }
+func NewModeration(store domain.ModerationStore, rm domain.ReadModel) *Moderation {
+	return &Moderation{store: store, rm: rm}
+}
 
 // ReportComment: commentID is a comment's id as the API returns it.
 func (m *Moderation) ReportComment(ctx context.Context, reporterID, commentID string) error {
@@ -48,4 +53,31 @@ func checkTarget(self, other string) error {
 		return domain.ErrInvalidInput
 	}
 	return nil
+}
+
+// maxReports is how many reported comments the admin sees at once.
+const maxReports = 100
+
+func (m *Moderation) Reported(ctx context.Context) ([]domain.ReportedComment, error) {
+	return m.store.ReportedComments(ctx, maxReports)
+}
+
+// DeleteComment removes a comment for good, then drops the read model of its
+// title so the next read rebuilds it without the comment.
+func (m *Moderation) DeleteComment(ctx context.Context, commentID string) error {
+	if _, err := uuid.Parse(commentID); err != nil {
+		return domain.ErrInvalidInput
+	}
+	t, err := m.store.DeleteComment(ctx, commentID)
+	if err != nil {
+		return err
+	}
+	return m.rm.Delete(ctx, t)
+}
+
+func (m *Moderation) DismissReports(ctx context.Context, commentID string) error {
+	if _, err := uuid.Parse(commentID); err != nil {
+		return domain.ErrInvalidInput
+	}
+	return m.store.DismissReports(ctx, commentID)
 }

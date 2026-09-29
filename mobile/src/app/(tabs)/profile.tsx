@@ -10,7 +10,8 @@ import { READABLE_WIDTH } from "@/lib/layout";
 import * as WebBrowser from "expo-web-browser";
 
 import { useLocale, useT } from "@/i18n";
-import { useLibrary, useMyRatings } from "@/lib/queries";
+import { displayName } from "@/lib/party";
+import { useBlockedUsers, useBlockUser, useLibrary, useMyRatings } from "@/lib/queries";
 import { logout } from "@/lib/session";
 import { useAuth } from "@/store/auth";
 import { colors, radius } from "@/theme";
@@ -79,6 +80,7 @@ export default function Profile() {
       <TitleRow title={t.profile.myList} items={listMovies} mode="movie" loading={list.isPending} />
       {!list.isPending && listMovies.length === 0 && <Text style={styles.empty}>{t.profile.listEmpty}</Text>}
 
+      <BlockedUsers />
       <LanguagePicker />
       <View style={styles.actionButtons}>
         <Pressable onPress={() => void logout()} style={({ pressed }) => [styles.secondary, pressed && { opacity: 0.8 }]}>
@@ -91,6 +93,36 @@ export default function Profile() {
       <Attribution />
       <DeleteAccountModal visible={deleteModal} onClose={() => setDeleteModal(false)} />
     </ScrollView>
+  );
+}
+
+/** The users you've blocked (their comments are hidden), with a way back.
+ *  Shown only when there is someone. */
+function BlockedUsers() {
+  const { t } = useT();
+  const me = useAuth((s) => s.userId);
+  const blocked = useBlockedUsers().data ?? [];
+  const unblock = useBlockUser();
+  if (blocked.length === 0) return null;
+  return (
+    <View style={styles.blocked}>
+      <Text style={styles.blockedTitle}>{t.profile.blockedTitle}</Text>
+      <Text style={styles.blockedNote}>{t.profile.blockedNote}</Text>
+      {blocked.map((id) => (
+        <View key={id} style={styles.blockedRow}>
+          <Text style={styles.blockedName} numberOfLines={1}>
+            {displayName(id, me, t)}
+          </Text>
+          <Pressable
+            onPress={() => unblock.mutate({ target: id, block: false })}
+            disabled={unblock.isPending}
+            style={({ pressed }) => [styles.unblock, (pressed || unblock.isPending) && { opacity: 0.6 }]}
+          >
+            <Text style={styles.unblockText}>{t.profile.unblock}</Text>
+          </Pressable>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -151,6 +183,13 @@ const styles = StyleSheet.create({
   statLabel: { color: colors.mute, fontSize: 12, marginTop: 2 },
   primary: { marginTop: 18, backgroundColor: colors.gold, borderRadius: 999, paddingVertical: 12, alignSelf: "stretch", alignItems: "center" },
   primaryText: { color: colors.onGold, fontWeight: "800", fontSize: 16 },
+  blocked: { marginHorizontal: 16, marginTop: 24, backgroundColor: colors.card, borderRadius: radius.lg, padding: 16, borderWidth: 1, borderColor: colors.border },
+  blockedTitle: { color: colors.text, fontWeight: "800", fontSize: 16 },
+  blockedNote: { color: colors.mute, fontSize: 12, marginTop: 2, marginBottom: 6 },
+  blockedRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8 },
+  blockedName: { flex: 1, color: colors.text },
+  unblock: { borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 },
+  unblockText: { color: colors.text, fontWeight: "700", fontSize: 13 },
   actionButtons: { marginTop: 28, marginHorizontal: 16, gap: 12 },
   secondary: { borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingVertical: 12, alignItems: "center" },
   secondaryText: { color: colors.text, fontWeight: "700" },

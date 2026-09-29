@@ -317,7 +317,7 @@ function CommentList({ interactions }: { interactions: Interactions }) {
               </div>
               <p className="mt-0.5 text-sm break-words text-foreground/90">{c.text}</p>
             </div>
-            {!optimistic.pending && currentUserId !== null && c.user_id !== currentUserId && <CommentMenu comment={c} />}
+            {!optimistic.pending && c.user_id !== currentUserId && <CommentMenu comment={c} />}
           </div>
         );
       })}
@@ -330,22 +330,27 @@ function CommentMenu({ comment }: { comment: Comment }) {
   const { t } = useT();
   const report = useReportComment();
   const blockUser = useBlockUser();
+  const requireAuth = useRequireAuth(); // signed out: asks to sign in first
 
   const onReport = () =>
-    report.mutate(comment.id, {
-      onSuccess: () => toast.success(t("comments.reported")),
-      onError: () => toast.error(t("comments.reportFailed")),
-    });
+    requireAuth(() =>
+      report.mutate(comment.id, {
+        onSuccess: () => toast.success(t("comments.reported")),
+        onError: () => toast.error(t("comments.reportFailed")),
+      }),
+    );
   const onBlock = () =>
-    blockUser.mutate(
-      { target: comment.user_id, block: true },
-      {
-        onSuccess: () =>
-          toast(t("comments.blocked"), {
-            action: { label: t("comments.undo"), onClick: () => blockUser.mutate({ target: comment.user_id, block: false }) },
-          }),
-        onError: () => toast.error(t("comments.blockFailed")),
-      },
+    requireAuth(() =>
+      blockUser.mutate(
+        { target: comment.user_id, block: true },
+        {
+          onSuccess: () =>
+            toast(t("comments.blocked"), {
+              action: { label: t("comments.undo"), onClick: () => blockUser.mutate({ target: comment.user_id, block: false }) },
+            }),
+          onError: () => toast.error(t("comments.blockFailed")),
+        },
+      ),
     );
 
   return (

@@ -66,6 +66,10 @@ func NewHandler(cmd *service.Command, query *service.Query, account *service.Acc
 		mux.HandleFunc("GET /api/v1/blocks", h.blocked())
 		mux.HandleFunc("PUT /api/v1/blocks/{userId}", h.block(h.moderation.Block))
 		mux.HandleFunc("DELETE /api/v1/blocks/{userId}", h.block(h.moderation.Unblock))
+		// For the admin panel. The gateway lets only admins through.
+		mux.HandleFunc("GET /api/v1/admin/reports", h.reports())
+		mux.HandleFunc("POST /api/v1/admin/comments/{id}/delete", h.commentAction(h.moderation.DeleteComment))
+		mux.HandleFunc("POST /api/v1/admin/comments/{id}/dismiss", h.commentAction(h.moderation.DismissReports))
 	}
 	return mux
 }
@@ -275,5 +279,33 @@ func (h *Handler) blocked() http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string][]string{"blocked": ids})
+	}
+}
+
+func (h *Handler) reports() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := userID(w, r); !ok {
+			return
+		}
+		items, err := h.moderation.Reported(r.Context())
+		if err != nil {
+			h.moderationError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	}
+}
+
+// commentAction serves the admin's per-comment actions: act(commentID).
+func (h *Handler) commentAction(act func(ctx context.Context, commentID string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := userID(w, r); !ok {
+			return
+		}
+		if err := act(r.Context(), r.PathValue("id")); err != nil {
+			h.moderationError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

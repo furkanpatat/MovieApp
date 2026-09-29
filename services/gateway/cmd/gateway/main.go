@@ -79,6 +79,7 @@ func run() error {
 			TrustForwardedFor: cfg.RateLimit.TrustForwardedFor, Log: log,
 		},
 		CORSAllowedOrigins: cfg.CORSOrigins(),
+		AdminUserIDs:       cfg.AdminIDs(),
 		Ready:              func(c context.Context) error { return rdb.Ping(c).Err() },
 		Log:                log,
 	})

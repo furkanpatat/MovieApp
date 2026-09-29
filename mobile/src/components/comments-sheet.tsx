@@ -30,7 +30,8 @@ export function CommentsSheet({ media, id, title, open, onClose }: { media: Medi
   const comments = (q.data?.recent_comments ?? []).filter((c) => !blocked?.includes(c.user_id));
 
   // Report a comment, or block its author (which hides all their comments).
-  const moderate = (c: { id: string; user_id: string }) =>
+  const moderate = (c: { id: string; user_id: string }) => {
+    if (!signedIn) return void (onClose(), router.push("/login"));
     Alert.alert(t.discover.more, undefined, [
       {
         text: t.discover.report,
@@ -58,6 +59,7 @@ export function CommentsSheet({ media, id, title, open, onClose }: { media: Medi
       },
       { text: t.discover.close, style: "cancel" },
     ]);
+  };
 
   // Relative to when the list was fetched (render stays pure).
   const ago = (iso: string) => {
@@ -119,7 +121,7 @@ export function CommentsSheet({ media, id, title, open, onClose }: { media: Medi
                       </Text>
                       <Text style={styles.text}>{item.text}</Text>
                     </View>
-                    {signedIn && !pending && item.user_id !== me && (
+                    {!pending && item.user_id !== me && (
                       <Pressable onPress={() => moderate(item)} hitSlop={10} style={styles.more} accessibilityLabel={t.discover.more}>
                         <Text style={styles.moreText}>⋯</Text>
                       </Pressable>

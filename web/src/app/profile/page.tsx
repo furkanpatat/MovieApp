@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 import { LanguageToggle } from "@/components/layout/language-toggle";
 import { WatchedGrid } from "@/components/profile/watched-grid";
+import { BlockedUsers } from "@/components/profile/blocked-users";
 import { DeleteAccountDialog } from "@/components/profile/delete-account-dialog";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
@@ -128,6 +129,8 @@ export default function ProfilePage() {
             </ul>
           )}
         </section>
+
+        <BlockedUsers className={`${GLASS} p-6`} />
 
         {/* Account settings */}
         <section className={`${GLASS} p-6`}>

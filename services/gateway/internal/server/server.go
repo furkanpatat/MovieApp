@@ -43,8 +43,10 @@ type Deps struct {
 	ChatRateLimit ratelimit.MiddlewareConfig
 	// CORSAllowedOrigins: browser origins allowed to call this API. "*" allows any.
 	CORSAllowedOrigins []string
-	Ready              func(context.Context) error // dependency check for /readyz
-	Log                *slog.Logger
+	// AdminUserIDs may use the /api/v1/admin/* endpoints (the admin panel).
+	AdminUserIDs []string
+	Ready        func(context.Context) error // dependency check for /readyz
+	Log          *slog.Logger
 }
 
 type gateway struct {
@@ -139,6 +141,11 @@ func New(d Deps) http.Handler {
 	api.Handle("GET /api/v1/blocks", requireAuth(interaction))
 	api.Handle("PUT /api/v1/blocks/{userId}", requireAuth(interaction))
 	api.Handle("DELETE /api/v1/blocks/{userId}", requireAuth(interaction))
+	// The admin panel: reported comments. Admins only (ADMIN_USER_IDS).
+	api.Handle("GET /api/v1/admin/me", requireAuth(g.adminMe()))
+	api.Handle("GET /api/v1/admin/reports", requireAuth(g.requireAdmin(interaction)))
+	api.Handle("POST /api/v1/admin/comments/{id}/delete", requireAuth(g.requireAdmin(interaction)))
+	api.Handle("POST /api/v1/admin/comments/{id}/dismiss", requireAuth(g.requireAdmin(interaction)))
 	// The user's library (watchlist + personal ratings). The user is always
 	// the authenticated one: requireAuth injects X-User-Id, clients can't.
 	api.Handle("GET /api/v1/watchlist", requireAuth(catalog))
@@ -484,4 +491,34 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (g *gateway) isAdmin(userID string) bool {
+	for _, id := range g.AdminUserIDs {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// requireAdmin lets only the admins (ADMIN_USER_IDS) through; it runs after
+// requireAuth, which has put the verified user in the context.
+func (g *gateway) requireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if userID, _ := r.Context().Value(userKey{}).(string); !g.isAdmin(userID) {
+			forbidden(w, "admins only")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// adminMe tells the panel who is asking and whether they are an admin: a
+// user who isn't is shown their id, to be added to ADMIN_USER_IDS.
+func (g *gateway) adminMe() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID, _ := r.Context().Value(userKey{}).(string)
+		writeJSON(w, http.StatusOK, map[string]any{"user_id": userID, "admin": g.isAdmin(userID)})
+	})
 }

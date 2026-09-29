@@ -294,3 +294,63 @@ func TestModeration(t *testing.T) {
 		t.Fatalf("reports of a deleted comment stay: %d", n)
 	}
 }
+
+func TestAdminReports(t *testing.T) {
+	repo, movie := setup(t)
+	ctx := context.Background()
+	t0 := time.Now().UTC().Truncate(time.Millisecond)
+	a, b := uuid.NewString(), uuid.NewString()
+	for _, id := range []string{a, b} {
+		if err := repo.SaveComment(ctx, domain.CommentAdded{EventID: id, MovieID: movie, UserID: "author", Text: "c-" + id, OccurredAt: t0}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// a is reported twice, b once: a comes first.
+	for _, r := range [][2]string{{a, "r1"}, {a, "r2"}, {b, "r1"}} {
+		if err := repo.ReportComment(ctx, r[0], r[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := repo.ReportedComments(ctx, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mine []domain.ReportedComment
+	for _, c := range all {
+		if c.MovieID == movie {
+			mine = append(mine, c)
+		}
+	}
+	if len(mine) != 2 || mine[0].ID != a || mine[0].Reports != 2 || mine[1].ID != b || mine[1].Reports != 1 || mine[0].MediaType != "movie" {
+		t.Fatalf("reported: %+v", mine)
+	}
+
+	if err := repo.DismissReports(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	title, err := repo.DeleteComment(ctx, a)
+	if err != nil || title.ID != movie || title.Media != domain.MediaMovie {
+		t.Fatalf("delete: %+v %v", title, err)
+	}
+	if _, err := repo.DeleteComment(ctx, a); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("delete twice: %v", err)
+	}
+	left, _ := repo.RecentComments(ctx, domain.Title{Media: domain.MediaMovie, ID: movie}, 10)
+	if len(left) != 1 || left[0].ID != b {
+		t.Fatalf("comments left: %+v", left)
+	}
+	for _, c := range mustReported(t, repo) {
+		if c.MovieID == movie {
+			t.Fatalf("still reported: %+v", c)
+		}
+	}
+}
+
+func mustReported(t *testing.T, repo *postgres.Repo) []domain.ReportedComment {
+	t.Helper()
+	out, err := repo.ReportedComments(context.Background(), 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}

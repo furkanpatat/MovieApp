@@ -40,6 +40,11 @@ func (b *accountBackends) log() []string {
 
 func newAccountGateway(t *testing.T, b *accountBackends) (*httptest.Server, *jwtauth.Manager) {
 	t.Helper()
+	return newAccountGatewayWithAdmins(t, b, nil)
+}
+
+func newAccountGatewayWithAdmins(t *testing.T, b *accountBackends, admins []string) (*httptest.Server, *jwtauth.Manager) {
+	t.Helper()
 	auth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b.record(r)
 		switch {
@@ -85,6 +90,7 @@ func newAccountGateway(t *testing.T, b *accountBackends) (*httptest.Server, *jwt
 		AuthLimiter:     ratelimit.New(rdb, 1000, time.Minute),
 		AuthRateLimit:   ratelimit.MiddlewareConfig{KeyPrefix: "auth:ip:", Log: quiet},
 		UpstreamTimeout: time.Second,
+		AdminUserIDs:    admins,
 		Log:             quiet,
 	}))
 	t.Cleanup(gw.Close)
@@ -212,5 +218,44 @@ func TestModerationRoutesNeedASessionAndCarryTheTokenUser(t *testing.T) {
 	}
 	if n := len(b.log()); n != len(routes) {
 		t.Fatalf("%d calls reached Interaction, want %d: %v", n, len(routes), b.log())
+	}
+}
+
+// Only the admins reach the admin endpoints; anyone signed in can ask who
+// they are, and whether they are one.
+func TestAdminEndpointsAreForAdminsOnly(t *testing.T) {
+	b := &accountBackends{password: "x"}
+	gw, mgr := newAccountGatewayWithAdmins(t, b, []string{"root"})
+	root, _, _ := mgr.Issue("root")
+	alice, _, _ := mgr.Issue("alice")
+	call := func(method, path, token string) int {
+		req, _ := http.NewRequest(method, gw.URL+path, nil)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	id := "6f1c6d7e-0c3a-4f6e-9a55-0d6f4a3f6b11"
+	for _, r := range [][2]string{{"GET", "/api/v1/admin/reports"}, {"POST", "/api/v1/admin/comments/" + id + "/delete"}, {"POST", "/api/v1/admin/comments/" + id + "/dismiss"}} {
+		if c := call(r[0], r[1], ""); c != http.StatusUnauthorized {
+			t.Errorf("%s %s signed out: %d", r[0], r[1], c)
+		}
+		if c := call(r[0], r[1], alice); c != http.StatusForbidden {
+			t.Errorf("%s %s as a non-admin: %d", r[0], r[1], c)
+		}
+		if c := call(r[0], r[1], root); c == http.StatusUnauthorized || c == http.StatusForbidden {
+			t.Errorf("%s %s as an admin: %d", r[0], r[1], c)
+		}
+	}
+	if c := call("GET", "/api/v1/admin/me", alice); c != http.StatusOK {
+		t.Errorf("admin/me: %d", c)
+	}
+	if c := call("GET", "/api/v1/admin/me", ""); c != http.StatusUnauthorized {
+		t.Errorf("admin/me signed out: %d", c)
 	}
 }

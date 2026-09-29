@@ -299,6 +299,9 @@ export const en = {
     recentFirst: "most recently added first",
   },
   profile: {
+    blockedTitle: "Blocked users",
+    blockedNote: "You don't see their comments.",
+    unblock: "Unblock",
     deleteAccount: "Delete account",
     deleteWarning: "This permanently deletes your account, your ratings, comments, list and watched titles. It can't be undone.",
     deleteConfirm: "Enter your password to confirm",

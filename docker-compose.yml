@@ -215,6 +215,8 @@ services:
       AUTH_URL: http://auth:8080
       WATCHPARTY_URL: http://watchparty:8080
       JWT_ISSUER: ${JWT_ISSUER:-movieapp-auth}
+      # Who may use the admin panel (/admin): comma-separated user ids.
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
       # Stricter budget for /api/v1/auth/* (login brute force, signup spam).
       AUTH_RATE_LIMIT_REQUESTS: ${AUTH_RATE_LIMIT_REQUESTS:-10}
       AUTH_RATE_LIMIT_WINDOW: ${AUTH_RATE_LIMIT_WINDOW:-1m}

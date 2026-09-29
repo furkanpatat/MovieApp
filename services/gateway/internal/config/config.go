@@ -41,6 +41,21 @@ type Config struct {
 	// Origin header (server-to-server, curl) are never subject to CORS at
 	// all — this only affects what a browser will let its own JS read.
 	CORSAllowedOrigins string `env:"CORS_ALLOWED_ORIGINS" envDefault:"http://localhost:3000"`
+
+	// AdminUserIDs: comma-separated ids of the users who may use the admin
+	// panel (/admin). Empty: nobody. A user's id is shown on /admin.
+	AdminUserIDs string `env:"ADMIN_USER_IDS"`
+}
+
+// AdminIDs is AdminUserIDs as a list.
+func (c Config) AdminIDs() []string {
+	var ids []string
+	for _, id := range strings.Split(c.AdminUserIDs, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 type RateLimit struct {
