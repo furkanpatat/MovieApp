@@ -4,8 +4,14 @@ import { useEffect, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bookmark, KeyRound, LogOut, Mail, Star, UserRound } from "lucide-react";
+import { Bookmark, CircleCheck, KeyRound, Languages, LogOut, Mail, Share2, Star, UserRound } from "lucide-react";
+import { toast } from "sonner";
 
+import { LanguageToggle } from "@/components/layout/language-toggle";
+import { WatchedGrid } from "@/components/profile/watched-grid";
+import { BlockedUsers } from "@/components/profile/blocked-users";
+import { DeleteAccountDialog } from "@/components/profile/delete-account-dialog";
+import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLogout } from "@/hooks/use-auth";
@@ -28,8 +34,9 @@ export default function ProfilePage() {
   const userId = useAuthStore((s) => s.userId);
   const username = useAuthStore((s) => s.username);
   const email = useAuthStore((s) => s.email);
-  const { list, ratings, status } = useUserLibrary();
+  const { list, watched, ratings, status } = useUserLibrary();
   const logout = useLogout();
+  const { t, locale } = useT();
 
   useEffect(() => {
     if (hasHydrated && !username) router.replace("/");
@@ -51,26 +58,49 @@ export default function ProfilePage() {
           <div className="flex size-20 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-amber-600 text-3xl font-bold text-zinc-950 shadow-lg shadow-primary/20">
             {username.charAt(0).toUpperCase()}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{username}</h1>
             {email && <p className="truncate text-sm text-muted-foreground">{email}</p>}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => void shareProfile(username, t("profile.profileLinkCopied"))}>
+                <Share2 className="size-4" />
+                {t("profile.shareProfile")}
+              </Button>
+              <Button size="sm" variant="secondary" asChild>
+                <Link href={`/u/${encodeURIComponent(username)}`}>{t("profile.viewPublic")}</Link>
+              </Button>
+            </div>
           </div>
         </section>
 
         {/* Stats */}
-        <section className="grid grid-cols-2 gap-4">
-          <Stat href="/my-list" icon={<Bookmark className="size-5 text-primary" />} value={list.length} label="In My List" />
-          <Stat icon={<Star className="size-5 text-primary" />} value={Object.keys(ratings).length} label="Ratings" />
+        <section className="grid grid-cols-3 gap-4">
+          <Stat href="/my-list" icon={<Bookmark className="size-5 text-primary" />} value={list.length} label={t("profile.inMyList")} />
+          <Stat href="#watched" icon={<CircleCheck className="size-5 text-primary" />} value={watched.length} label={t("profile.watched")} />
+          <Stat icon={<Star className="size-5 text-primary" />} value={Object.keys(ratings).length} label={t("profile.ratings")} />
+        </section>
+
+        {/* Watched: public, on /u/{username} too */}
+        <section id="watched" className={`${GLASS} scroll-mt-24 p-6`}>
+          <h2 className="text-lg font-bold tracking-tight">{t("profile.watchedTitle")}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">{t("profile.watchedPublic")}</p>
+          {watched.length === 0 ? (
+            <p className="mt-4 text-sm text-muted-foreground">{t("profile.watchedEmpty")}</p>
+          ) : (
+            <div className="mt-4">
+              <WatchedGrid movies={watched.map((w) => w.movie)} />
+            </div>
+          )}
         </section>
 
         {/* Recent ratings */}
         <section className={`${GLASS} p-6`}>
-          <h2 className="text-lg font-bold tracking-tight">Recent ratings</h2>
+          <h2 className="text-lg font-bold tracking-tight">{t("profile.recentRatings")}</h2>
           {recent.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">
-              You haven&apos;t rated anything yet. Rate a movie from its page or like it in the{" "}
+              {t("profile.noRatingsBefore")}{" "}
               <Link href="/discover" className="text-primary underline-offset-4 hover:underline">
-                Discover feed
+                {t("profile.discoverFeed")}
               </Link>
               .
             </p>
@@ -100,27 +130,38 @@ export default function ProfilePage() {
           )}
         </section>
 
+        <BlockedUsers className={`${GLASS} p-6`} />
+
         {/* Account settings */}
         <section className={`${GLASS} p-6`}>
-          <h2 className="text-lg font-bold tracking-tight">Account settings</h2>
+          <h2 className="text-lg font-bold tracking-tight">{t("profile.accountSettings")}</h2>
           <div className="mt-4 divide-y divide-white/5">
-            <SettingRow icon={<UserRound className="size-4" />} label="Username" value={username} />
-            <SettingRow icon={<Mail className="size-4" />} label="Email" value={email ?? "Sign in again to show your email"} />
+            <SettingRow icon={<UserRound className="size-4" />} label={t("profile.username")} value={username} />
+            <SettingRow icon={<Mail className="size-4" />} label={t("profile.email")} value={email ?? t("profile.emailMissing")} />
+            <SettingRow
+              icon={<Languages className="size-4" />}
+              label={t("nav.language")}
+              value={locale === "tr" ? "Türkçe" : "English"}
+              action={<LanguageToggle />}
+            />
             <SettingRow
               icon={<KeyRound className="size-4" />}
-              label="Password"
+              label={t("profile.password")}
               value="••••••••"
               action={
-                <Button variant="secondary" size="sm" disabled title="Coming soon">
-                  Change
+                <Button variant="secondary" size="sm" disabled title={t("common.comingSoon")}>
+                  {t("profile.change")}
                 </Button>
               }
             />
           </div>
-          <Button variant="destructive" className="mt-6 w-full sm:w-auto" onClick={() => logout.mutate()} disabled={logout.isPending}>
-            <LogOut className="size-4" />
-            Sign out
-          </Button>
+          <div className="mt-6 flex flex-col sm:flex-row gap-4">
+            <Button variant="outline" className="w-full sm:w-auto text-zinc-300" onClick={() => logout.mutate()} disabled={logout.isPending}>
+              <LogOut className="size-4" />
+              {t("nav.signOut")}
+            </Button>
+            <DeleteAccountDialog />
+          </div>
         </section>
 
         {status === "error" && (
@@ -155,6 +196,21 @@ function Stat({ icon, value, label, href }: { icon: ReactNode; value: number; la
   ) : (
     <div className={`${GLASS} p-5`}>{body}</div>
   );
+}
+
+/** Shares the public profile link: the device's share sheet, or the clipboard. */
+async function shareProfile(username: string, copied: string) {
+  const url = `${window.location.origin}/u/${encodeURIComponent(username)}`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: username, url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    toast.success(copied, { id: "share-profile" });
+  } catch {
+    // The share sheet closed, or no clipboard: nothing to report.
+  }
 }
 
 function SettingRow({ icon, label, value, action }: { icon: ReactNode; label: string; value: string; action?: ReactNode }) {

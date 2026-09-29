@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/furkanpatat/movieapp/services/catalog/internal/domain"
+	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/mockchat"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/rediscache"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/service"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/transport"
@@ -71,6 +72,54 @@ func TestSearchRoute(t *testing.T) {
 	for _, path := range []string{"/api/v1/search/movies", "/api/v1/search/movies?q=%20", "/api/v1/search/movies?q=x&page=zero"} {
 		if code, _ := call(t, srv, "GET", path, "", ""); code != http.StatusBadRequest {
 			t.Errorf("%s -> %d, want 400", path, code)
+		}
+	}
+}
+
+func chatServer(t *testing.T) *httptest.Server {
+	mr := miniredis.RunT(t)
+	cache := rediscache.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), time.Hour)
+	svc := service.NewCatalog(chatProvider{}, cache, nil, time.Hour, quiet)
+	srv := httptest.NewServer(transport.NewHandler(svc, nil, nil, quiet,
+		transport.WithAssistant(service.NewAssistant(mockchat.Model{}, svc))))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// chatProvider knows every movie.
+type chatProvider struct{ stubProvider }
+
+func (chatProvider) GetMovieDetails(_ context.Context, id int) (domain.Movie, error) {
+	return domain.Movie{ID: id, Title: "M", PosterPath: "/p.jpg"}, nil
+}
+
+func TestChatRoute(t *testing.T) {
+	srv := chatServer(t)
+	body := `{"messages":[{"role":"user","content":"something funny"}],"context":{"path":"/movies/5"},"locale":"tr"}`
+
+	if code, _ := call(t, srv, "POST", "/api/v1/chat", "", body); code != http.StatusUnauthorized {
+		t.Fatalf("anonymous -> %d, want 401", code)
+	}
+
+	code, res := call(t, srv, "POST", "/api/v1/chat", alice, body)
+	ids, _ := res["movie_ids"].([]any)
+	movies, _ := res["movies"].([]any)
+	if code != http.StatusOK || res["message"] == "" || len(ids) == 0 || len(movies) != len(ids) {
+		t.Fatalf("-> %d %v", code, res)
+	}
+	if m := movies[0].(map[string]any); m["id"] != ids[0] || m["poster_path"] != "/p.jpg" {
+		t.Fatalf("first movie %v, ids %v", m, ids)
+	}
+
+	for name, b := range map[string]string{
+		"no messages":   `{"messages":[]}`,
+		"ends with bot": `{"messages":[{"role":"assistant","content":"hi"}]}`,
+		"unknown field": `{"messages":[{"role":"user","content":"hi"}],"user_id":"x"}`,
+		"bad locale":    `{"messages":[{"role":"user","content":"hi"}],"locale":"de"}`,
+		"not json":      `hello`,
+	} {
+		if code, _ := call(t, srv, "POST", "/api/v1/chat", alice, b); code != http.StatusBadRequest {
+			t.Errorf("%s -> %d, want 400", name, code)
 		}
 	}
 }

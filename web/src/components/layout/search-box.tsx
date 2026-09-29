@@ -6,7 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { Clapperboard, Loader2, Search, X } from "lucide-react";
 
 import { RatingBadge } from "@/components/movies/rating-badge";
-import { normalizeQuery, useSearchMovies } from "@/hooks/queries";
+import { normalizeQuery, useSearchTitles } from "@/hooks/queries";
+import { useT } from "@/i18n";
+import { titleHref } from "@/lib/media";
+import { useMediaMode } from "@/store/media-mode-store";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { posterUrl } from "@/lib/tmdb-image";
 import type { Movie } from "@/types/movie";
@@ -26,6 +29,7 @@ export function searchHref(q: string) {
  */
 export function SearchBox() {
   const router = useRouter();
+  const { t } = useT();
   const pathname = usePathname();
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -36,7 +40,9 @@ export function SearchBox() {
   const [active, setActive] = useState(-1);
 
   const debounced = useDebouncedValue(value, 300);
-  const search = useSearchMovies(debounced);
+  // Searches the app's current mode: movies, or series.
+  const { mode, ready: modeReady } = useMediaMode();
+  const search = useSearchTitles(debounced, mode, modeReady);
   const results: Movie[] = (search.data?.pages[0]?.results ?? []).slice(0, QUICK_RESULTS);
   const ready = normalizeQuery(value).length >= MIN_CHARS;
   // Waiting on the debounce or the request: show a spinner, not stale "no results".
@@ -67,7 +73,7 @@ export function SearchBox() {
   };
   const openMovie = (m: Movie) => {
     setValue("");
-    goTo(`/movies/${m.id}`);
+    goTo(titleHref(m));
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -103,8 +109,8 @@ export function SearchBox() {
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Search movies…"
-          aria-label="Search movies"
+          placeholder={t(mode === "tv" ? "search.series" : "search.movies")}
+          aria-label={t(mode === "tv" ? "search.seriesLabel" : "search.moviesLabel")}
           role="combobox"
           aria-expanded={showPanel}
           aria-controls={listId}
@@ -113,12 +119,12 @@ export function SearchBox() {
           className="h-9 w-full min-w-0 bg-transparent text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
         />
         {loading ? (
-          <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-label="Searching" />
+          <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-label={t("search.searching")} />
         ) : (
           value && (
             <button
               type="button"
-              aria-label="Clear search"
+              aria-label={t("search.clear")}
               onClick={() => {
                 setValue("");
                 inputRef.current?.focus();
@@ -133,7 +139,7 @@ export function SearchBox() {
 
       {showPanel && (
         <div className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 backdrop-blur-xl">
-          <ul id={listId} role="listbox" aria-label="Quick results" className="max-h-[60vh] overflow-y-auto py-1">
+          <ul id={listId} role="listbox" aria-label={t("search.quickResults")} className="max-h-[60vh] overflow-y-auto py-1">
             {results.map((m, i) => {
               const poster = posterUrl(m.poster_path, "w185");
               return (
@@ -168,7 +174,9 @@ export function SearchBox() {
 
           {!loading && results.length === 0 && (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-              {search.isError ? "Search is unavailable right now." : `No movies match “${normalizeQuery(value)}”.`}
+              {search.isError
+                ? t("search.unavailable")
+                : t(mode === "tv" ? "search.noSeriesMatch" : "search.noMoviesMatch", { q: normalizeQuery(value) })}
             </p>
           )}
 
@@ -179,7 +187,7 @@ export function SearchBox() {
             className="flex w-full items-center gap-2 border-t border-white/10 px-4 py-3 text-left text-sm font-medium text-primary hover:bg-white/5"
           >
             <Search className="size-4" />
-            See all results for “{normalizeQuery(value)}”
+            {t("search.seeAll", { q: normalizeQuery(value) })}
           </button>
         </div>
       )}

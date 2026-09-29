@@ -5,8 +5,9 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 
 import { ApiError, apiFetch } from "@/lib/api-client";
+import { mediaTypeOf, titleKey, type TitleRef } from "@/lib/media";
 import { useAuthStore } from "@/store/auth-store";
-import type { LibraryMovie, ListResponse, UserRating, WatchlistItem } from "@/types/library";
+import type { LibraryMovie, ListResponse, UserRating, WatchedItem, WatchlistItem } from "@/types/library";
 import type { Movie } from "@/types/movie";
 
 /**
@@ -30,6 +31,11 @@ export interface ListEntry {
   addedAt: number;
 }
 
+export interface WatchedEntry {
+  movie: SavedMovie;
+  watchedAt: number;
+}
+
 export interface RatingEntry {
   movie: SavedMovie;
   score: number;
@@ -43,23 +49,30 @@ interface LibraryState {
   userId: string | null;
   status: LibraryStatus;
   list: ListEntry[];
-  ratings: Record<number, RatingEntry>;
+  /** What the user watched, newest first (shown on their public profile). */
+  watched: WatchedEntry[];
+  /** By titleKey ("movie-27205", "tv-1399"): ids repeat across media types. */
+  ratings: Record<string, RatingEntry>;
   load: (userId: string) => Promise<void>;
   reset: () => void;
-  /** Adds the movie to the list, or removes it; resolves to the new state. */
+  /** Adds the title (movie or series) to the list, or removes it;
+   *  resolves to the new state. */
   toggleSaved: (movie: Movie) => Promise<boolean>;
-  /** Creates or replaces the user's rating for the movie. */
+  /** Marks the title watched, or not; resolves to the new state. */
+  toggleWatched: (movie: Movie) => Promise<boolean>;
+  /** Creates or replaces the user's rating for the title. */
   rate: (movie: Movie, score: number) => Promise<void>;
 }
 
-const empty = { userId: null, status: "idle" as const, list: [], ratings: {} };
+const empty = { userId: null, status: "idle" as const, list: [], watched: [], ratings: {} };
 
 export function toSaved(m: Movie | SavedMovie): SavedMovie {
   const { id, title, overview, poster_path, backdrop_path, release_date, vote_average, vote_count, imdb_rating } = m;
-  return { id, title, overview, poster_path, backdrop_path, release_date, vote_average, vote_count, imdb_rating };
+  return { id, media_type: mediaTypeOf(m), title, overview, poster_path, backdrop_path, release_date, vote_average, vote_count, imdb_rating };
 }
 
 const fromWatchlist = (w: WatchlistItem): ListEntry => ({ movie: w.movie, addedAt: Date.parse(w.added_at) });
+const fromWatched = (w: WatchedItem): WatchedEntry => ({ movie: w.movie, watchedAt: Date.parse(w.watched_at) });
 const fromRating = (r: UserRating): RatingEntry => ({
   movie: r.movie,
   score: r.rating,
@@ -69,9 +82,13 @@ const fromRating = (r: UserRating): RatingEntry => ({
 // Bumped on every load/reset so a slow response for a previous session is
 // dropped instead of overwriting the current one.
 let generation = 0;
-// Movies with a list toggle in flight: a double click must not race an add
-// against a remove on the server.
-const toggling = new Set<number>();
+// Titles (titleKey) with a list toggle in flight: a double click must not
+// race an add against a remove on the server.
+const toggling = new Set<string>();
+
+/** What the library API takes to name a title. */
+const titleBody = (m: Movie) => ({ media_type: mediaTypeOf(m), movie_id: m.id });
+const sameTitle = (a: TitleRef) => (b: TitleRef) => titleKey(a) === titleKey(b);
 
 export const useLibraryStore = create<LibraryState>()((set, get) => ({
   ...empty,
@@ -81,15 +98,17 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
     set({ ...empty, userId, status: "loading" });
     await importLegacyLibrary(userId);
     try {
-      const [list, ratings] = await Promise.all([
+      const [list, ratings, watched] = await Promise.all([
         apiFetch<ListResponse<WatchlistItem>>("/api/v1/watchlist"),
         apiFetch<ListResponse<UserRating>>("/api/v1/ratings"),
+        apiFetch<ListResponse<WatchedItem>>("/api/v1/watched"),
       ]);
       if (gen !== generation) return;
       set({
         status: "ready",
         list: list.items.map(fromWatchlist),
-        ratings: Object.fromEntries(ratings.items.map((r) => [r.movie.id, fromRating(r)])),
+        watched: watched.items.map(fromWatched),
+        ratings: Object.fromEntries(ratings.items.map((r) => [titleKey(r.movie), fromRating(r)])),
       });
     } catch {
       if (gen === generation) set({ status: "error" });
@@ -104,41 +123,72 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
 
   toggleSaved: async (movie) => {
     const { userId, list } = get();
-    const existing = list.find((e) => e.movie.id === movie.id);
+    const key = titleKey(movie);
+    const existing = list.find((e) => sameTitle(movie)(e.movie));
     const saved = existing !== undefined;
-    if (!userId || toggling.has(movie.id)) return saved;
+    if (!userId || toggling.has(key)) return saved;
 
-    toggling.add(movie.id);
+    toggling.add(key);
     const entry: ListEntry = existing ?? { movie: toSaved(movie), addedAt: Date.now() };
-    const without = (l: ListEntry[]) => l.filter((e) => e.movie.id !== movie.id);
+    const without = (l: ListEntry[]) => l.filter((e) => !sameTitle(movie)(e.movie));
     const current = () => get().userId === userId;
 
     set({ list: saved ? without(list) : [entry, ...list] });
     try {
       if (saved) {
-        await apiFetch<void>(`/api/v1/watchlist/${movie.id}`, { method: "DELETE" });
+        await apiFetch<void>(`/api/v1/watchlist/${movie.id}?media_type=${mediaTypeOf(movie)}`, { method: "DELETE" });
       } else {
-        const item = await apiFetch<WatchlistItem>("/api/v1/watchlist", { method: "POST", body: { movie_id: movie.id } });
-        if (current()) set({ list: get().list.map((e) => (e.movie.id === movie.id ? fromWatchlist(item) : e)) });
+        const item = await apiFetch<WatchlistItem>("/api/v1/watchlist", { method: "POST", body: titleBody(movie) });
+        if (current()) set({ list: get().list.map((e) => (sameTitle(movie)(e.movie) ? fromWatchlist(item) : e)) });
       }
       return !saved;
     } catch (err) {
       if (current()) set({ list: saved ? [entry, ...without(get().list)] : without(get().list) });
       throw err;
     } finally {
-      toggling.delete(movie.id);
+      toggling.delete(key);
+    }
+  },
+
+  toggleWatched: async (movie) => {
+    const { userId, watched } = get();
+    const key = `watched:${titleKey(movie)}`;
+    const existing = watched.find((e) => sameTitle(movie)(e.movie));
+    const isWatched = existing !== undefined;
+    if (!userId || toggling.has(key)) return isWatched;
+
+    toggling.add(key);
+    const entry: WatchedEntry = existing ?? { movie: toSaved(movie), watchedAt: Date.now() };
+    const without = (l: WatchedEntry[]) => l.filter((e) => !sameTitle(movie)(e.movie));
+    const current = () => get().userId === userId;
+
+    set({ watched: isWatched ? without(watched) : [entry, ...watched] });
+    try {
+      if (isWatched) {
+        await apiFetch<void>(`/api/v1/watched/${movie.id}?media_type=${mediaTypeOf(movie)}`, { method: "DELETE" });
+      } else {
+        const item = await apiFetch<WatchedItem>("/api/v1/watched", { method: "POST", body: titleBody(movie) });
+        if (current()) set({ watched: get().watched.map((e) => (sameTitle(movie)(e.movie) ? fromWatched(item) : e)) });
+      }
+      return !isWatched;
+    } catch (err) {
+      if (current()) set({ watched: isWatched ? [entry, ...without(get().watched)] : without(get().watched) });
+      throw err;
+    } finally {
+      toggling.delete(key);
     }
   },
 
   rate: async (movie, score) => {
     const { userId } = get();
     if (!userId) return;
-    const previous = get().ratings[movie.id];
+    const key = titleKey(movie);
+    const previous = get().ratings[key];
     const current = () => get().userId === userId;
     const put = (entry: RatingEntry | undefined) => {
       const ratings = { ...get().ratings };
-      if (entry) ratings[movie.id] = entry;
-      else delete ratings[movie.id];
+      if (entry) ratings[key] = entry;
+      else delete ratings[key];
       set({ ratings });
     };
 
@@ -146,7 +196,7 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
     try {
       const saved = await apiFetch<UserRating>("/api/v1/ratings", {
         method: "PUT",
-        body: { movie_id: movie.id, rating: score },
+        body: { ...titleBody(movie), rating: score },
       });
       if (current()) put(fromRating(saved));
     } catch (err) {
@@ -158,7 +208,7 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
 
 /** The current user's library (empty while signed out or loading). */
 export function useUserLibrary() {
-  return useLibraryStore(useShallow(({ list, ratings, status }) => ({ list, ratings, status })));
+  return useLibraryStore(useShallow(({ list, watched, ratings, status }) => ({ list, watched, ratings, status })));
 }
 
 /** Loads the library when someone signs in and clears it when they sign out

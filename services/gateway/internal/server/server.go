@@ -36,15 +36,23 @@ type Deps struct {
 	AuthLimiter     *ratelimit.Limiter
 	AuthRateLimit   ratelimit.MiddlewareConfig
 	UpstreamTimeout time.Duration
+	// Chat (the LLM assistant) is slow and costs money per call: it gets a
+	// longer upstream timeout and its own, stricter rate limit.
+	ChatTimeout   time.Duration
+	ChatLimiter   *ratelimit.Limiter
+	ChatRateLimit ratelimit.MiddlewareConfig
 	// CORSAllowedOrigins: browser origins allowed to call this API. "*" allows any.
 	CORSAllowedOrigins []string
-	Ready              func(context.Context) error // dependency check for /readyz
-	Log                *slog.Logger
+	// AdminUserIDs may use the /api/v1/admin/* endpoints (the admin panel).
+	AdminUserIDs []string
+	Ready        func(context.Context) error // dependency check for /readyz
+	Log          *slog.Logger
 }
 
 type gateway struct {
 	Deps
-	transport http.RoundTripper
+	transport     http.RoundTripper
+	chatTransport http.RoundTripper
 	// trustedOrigins is the explicit CORS allow-list ("*" excluded): the only
 	// origins whose requests may be authenticated by the session cookie.
 	trustedOrigins map[string]struct{}
@@ -57,10 +65,20 @@ type gateway struct {
 //	GET  /api/v1/movies/...                 -> Catalog        (public)
 //	GET  /api/v1/people/{id}               -> Catalog        (public; actor pages)
 //	GET  /api/v1/search/movies?q=          -> Catalog        (public)
+//	GET  /api/v1/discover/movies?genre=    -> Catalog        (public; Discover feed)
+//	GET  /api/v1/tv/popular, /tv/{id}      -> Catalog        (public; TV series)
+//	GET  /api/v1/tv/{id}/interactions      -> Interaction    (public)
+//	POST /api/v1/tv/{id}/rate|comment      -> Interaction    (JWT required)
+//	POST /api/v1/comments/{id}/report      -> Interaction    (JWT required)
+//	GET|PUT|DELETE /api/v1/blocks[/{userId}] -> Interaction  (JWT required)
 //	GET  /api/v1/movies/{id}/interactions  -> Interaction    (public)
 //	POST /api/v1/movies/{id}/rate|comment  -> Interaction    (JWT required)
 //	GET|POST /api/v1/watchlist, DELETE /api/v1/watchlist/{movie_id},
 //	GET|PUT  /api/v1/ratings               -> Catalog        (JWT required; the user's library)
+//	GET|POST /api/v1/watched, DELETE /api/v1/watched/{movie_id}
+//	                                       -> Catalog        (JWT required; what the user watched)
+//	GET  /api/v1/users/{username}/watched  -> Catalog        (public; profile pages)
+//	POST /api/v1/chat                      -> Catalog        (JWT required; AI recommendation assistant)
 //	GET  /api/v1/watch-party/...           -> Watch-Party    (JWT required; WebSocket upgrade,
 //	                                          token in Authorization header, ?token= or cookie)
 //	     ...also under /api/v1/interaction/movies/{id}/...
@@ -74,12 +92,19 @@ func New(d Deps) http.Handler {
 	if d.UpstreamTimeout <= 0 {
 		d.UpstreamTimeout = 10 * time.Second
 	}
-	g := &gateway{Deps: d, transport: &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		ResponseHeaderTimeout: d.UpstreamTimeout,
-		MaxIdleConnsPerHost:   100,
-		IdleConnTimeout:       90 * time.Second,
-	}, trustedOrigins: map[string]struct{}{}}
+	if d.ChatTimeout <= 0 {
+		d.ChatTimeout = 60 * time.Second
+	}
+	newTransport := func(timeout time.Duration) *http.Transport {
+		return &http.Transport{
+			DialContext:           (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			ResponseHeaderTimeout: timeout,
+			MaxIdleConnsPerHost:   100,
+			IdleConnTimeout:       90 * time.Second,
+		}
+	}
+	g := &gateway{Deps: d, transport: newTransport(d.UpstreamTimeout), chatTransport: newTransport(d.ChatTimeout),
+		trustedOrigins: map[string]struct{}{}}
 	for _, o := range d.CORSAllowedOrigins {
 		if o != "*" {
 			g.trustedOrigins[o] = struct{}{}
@@ -102,9 +127,25 @@ func New(d Deps) http.Handler {
 	api.Handle("GET /api/v1/movies/", catalog)
 	api.Handle("GET /api/v1/people/", catalog)
 	api.Handle("GET /api/v1/search/", catalog)
+	api.Handle("GET /api/v1/discover/", catalog)
+	api.Handle("GET /api/v1/tv/", catalog)
 	api.Handle("GET /api/v1/movies/{id}/interactions", interaction)
 	api.Handle("POST /api/v1/movies/{id}/rate", requireAuth(interaction))
 	api.Handle("POST /api/v1/movies/{id}/comment", requireAuth(interaction))
+	// The same for TV series (more specific than the catalog's /tv/ prefix).
+	api.Handle("GET /api/v1/tv/{id}/interactions", interaction)
+	api.Handle("POST /api/v1/tv/{id}/rate", requireAuth(interaction))
+	api.Handle("POST /api/v1/tv/{id}/comment", requireAuth(interaction))
+	// Reporting a comment and blocking a user (moderation).
+	api.Handle("POST /api/v1/comments/{id}/report", requireAuth(interaction))
+	api.Handle("GET /api/v1/blocks", requireAuth(interaction))
+	api.Handle("PUT /api/v1/blocks/{userId}", requireAuth(interaction))
+	api.Handle("DELETE /api/v1/blocks/{userId}", requireAuth(interaction))
+	// The admin panel: reported comments. Admins only (ADMIN_USER_IDS).
+	api.Handle("GET /api/v1/admin/me", requireAuth(g.adminMe()))
+	api.Handle("GET /api/v1/admin/reports", requireAuth(g.requireAdmin(interaction)))
+	api.Handle("POST /api/v1/admin/comments/{id}/delete", requireAuth(g.requireAdmin(interaction)))
+	api.Handle("POST /api/v1/admin/comments/{id}/dismiss", requireAuth(g.requireAdmin(interaction)))
 	// The user's library (watchlist + personal ratings). The user is always
 	// the authenticated one: requireAuth injects X-User-Id, clients can't.
 	api.Handle("GET /api/v1/watchlist", requireAuth(catalog))
@@ -112,6 +153,20 @@ func New(d Deps) http.Handler {
 	api.Handle("DELETE /api/v1/watchlist/{movie_id}", requireAuth(catalog))
 	api.Handle("GET /api/v1/ratings", requireAuth(catalog))
 	api.Handle("PUT /api/v1/ratings", requireAuth(catalog))
+	api.Handle("GET /api/v1/watched", requireAuth(catalog))
+	api.Handle("POST /api/v1/watched", requireAuth(catalog))
+	api.Handle("DELETE /api/v1/watched/{movie_id}", requireAuth(catalog))
+	// Account orchestration
+	api.Handle("POST /api/v1/account/delete", requireAuth(g.deleteAccount()))
+	// Public profiles: anyone may see what a user watched.
+	api.Handle("GET /api/v1/users/{username}/watched", catalog)
+	// AI assistant: signed-in only (an LLM call costs money per request),
+	// with a longer timeout and a stricter per-client budget.
+	chat := requireAuth(g.proxyVia(d.Catalog, g.chatTransport))
+	if d.ChatLimiter != nil {
+		chat = ratelimit.Middleware(d.ChatLimiter, d.ChatRateLimit)(chat)
+	}
+	api.Handle("POST /api/v1/chat", chat)
 	// WebSockets: browsers cannot set an Authorization header on the handshake,
 	// so this route (and only this route) also accepts ?token=<jwt> on an upgrade request.
 	api.Handle("GET /api/v1/watch-party/", g.requireAuthWS(watchParty))
@@ -132,7 +187,9 @@ func New(d Deps) http.Handler {
 
 // --- proxying ---
 
-func (g *gateway) proxy(target *url.URL) http.Handler {
+func (g *gateway) proxy(target *url.URL) http.Handler { return g.proxyVia(target, g.transport) }
+
+func (g *gateway) proxyVia(target *url.URL, transport http.RoundTripper) http.Handler {
 	return &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(target)
@@ -149,7 +206,7 @@ func (g *gateway) proxy(target *url.URL) http.Handler {
 				r.Out.Header.Set("X-Request-Id", rid)
 			}
 		},
-		Transport: g.transport,
+		Transport: transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			status, msg := http.StatusBadGateway, "upstream unavailable"
 			var ne net.Error
@@ -434,4 +491,34 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (g *gateway) isAdmin(userID string) bool {
+	for _, id := range g.AdminUserIDs {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// requireAdmin lets only the admins (ADMIN_USER_IDS) through; it runs after
+// requireAuth, which has put the verified user in the context.
+func (g *gateway) requireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if userID, _ := r.Context().Value(userKey{}).(string); !g.isAdmin(userID) {
+			forbidden(w, "admins only")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// adminMe tells the panel who is asking and whether they are an admin: a
+// user who isn't is shown their id, to be added to ADMIN_USER_IDS.
+func (g *gateway) adminMe() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID, _ := r.Context().Value(userKey{}).(string)
+		writeJSON(w, http.StatusOK, map[string]any{"user_id": userID, "admin": g.isAdmin(userID)})
+	})
 }

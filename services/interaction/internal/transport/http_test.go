@@ -41,17 +41,18 @@ func (panicRepo) SaveRating(context.Context, domain.RatingSubmitted) (domain.Rat
 func (panicRepo) SaveComment(context.Context, domain.CommentAdded) error {
 	panic("write path touched Postgres")
 }
-func (panicRepo) GetStats(context.Context, int) (domain.RatingStats, error) {
+func (panicRepo) GetStats(context.Context, domain.Title) (domain.RatingStats, error) {
 	return domain.RatingStats{}, errors.New("no db")
 }
-func (panicRepo) RecentComments(context.Context, int, int) ([]domain.Comment, error) {
+func (panicRepo) PurgeUser(context.Context, string) ([]domain.RatingStats, error) { panic("no db") }
+func (panicRepo) RecentComments(context.Context, domain.Title, int) ([]domain.Comment, error) {
 	return nil, errors.New("no db")
 }
 
 func server(t *testing.T, p *outbox) (http.Handler, *readmodel.Model) {
 	mr := miniredis.RunT(t)
 	rm := readmodel.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), 20)
-	return transport.NewHandler(service.NewCommand(p), service.NewQuery(panicRepo{}, rm, 20, quiet), nil, quiet), rm
+	return transport.NewHandler(service.NewCommand(p), service.NewQuery(panicRepo{}, rm, 20, quiet), nil, nil, quiet), rm
 }
 
 func do(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -130,7 +131,7 @@ func TestEventCarriesHeaderIdentity(t *testing.T) {
 	var got domain.OutboxMessage
 	mr := miniredis.RunT(t)
 	rm := readmodel.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), 20)
-	h := transport.NewHandler(service.NewCommand(captureOutbox{&got}), service.NewQuery(panicRepo{}, rm, 20, quiet), nil, quiet)
+	h := transport.NewHandler(service.NewCommand(captureOutbox{&got}), service.NewQuery(panicRepo{}, rm, 20, quiet), nil, nil, quiet)
 	if rec := doAs(h, "carol", "POST", "/api/v1/movies/7/rate", `{"score":4}`); rec.Code != http.StatusAccepted {
 		t.Fatal(rec.Code)
 	}
@@ -155,8 +156,8 @@ func TestStoreDownGives503(t *testing.T) {
 
 func TestGetServedFromReadModelOnly(t *testing.T) {
 	h, rm := server(t, &outbox{})
-	_ = rm.Init(context.Background(), domain.RatingStats{MovieID: 7, TotalScore: 17, VoteCount: 2, Version: 1}, nil)
-	_, _ = rm.AddComment(context.Background(), 7, domain.Comment{ID: "c", UserID: "a", Text: "hey"})
+	_ = rm.Init(context.Background(), domain.RatingStats{Title: domain.Movie(7), TotalScore: 17, VoteCount: 2, Version: 1}, nil)
+	_, _ = rm.AddComment(context.Background(), domain.Movie(7), domain.Comment{ID: "c", UserID: "a", Text: "hey"})
 
 	rec := do(h, "GET", "/api/v1/movies/7/interactions", "")
 	if rec.Code != 200 {

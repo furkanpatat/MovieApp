@@ -79,7 +79,7 @@ func (r *Repository) GetMovie(ctx context.Context, id int) (domain.Movie, time.T
 		WHERE m.id = $1
 	`
 
-	var m domain.Movie
+	m := domain.Movie{MediaType: domain.MediaMovie}
 	var fetchedAt time.Time
 	var castJSON, trailerKey, posterPath, backdropPath, releaseDate, tagline, imdbID *string
 	var runtime, imdbVotes *int32

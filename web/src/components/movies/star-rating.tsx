@@ -1,5 +1,6 @@
 "use client";
 
+import { plural, useT } from "@/i18n";
 import { useState } from "react";
 import { Star } from "lucide-react";
 
@@ -32,6 +33,7 @@ export function StarRatingDisplay({
   votes: number;
   starClassName?: string;
 }) {
+  const { t, locale } = useT();
   return (
     <div className="flex items-center gap-2">
       <div className="flex items-center gap-0.5">
@@ -41,7 +43,7 @@ export function StarRatingDisplay({
       </div>
       <span className="text-sm font-semibold text-foreground">{value > 0 ? value.toFixed(1) : "—"}</span>
       <span className="text-sm text-muted-foreground">
-        ({votes.toLocaleString()} {votes === 1 ? "vote" : "votes"})
+        ({t(plural(votes, "rating.votesOne", "rating.votesOther"), { n: votes.toLocaleString(locale) })})
       </span>
     </div>
   );
@@ -64,6 +66,7 @@ export function StarRatingInput({
   onSelect: (score: number) => void;
   disabled?: boolean;
 }) {
+  const { t } = useT();
   const [hover, setHover] = useState<number | null>(null);
   const active = hover ?? value ?? 0;
 
@@ -80,7 +83,7 @@ export function StarRatingInput({
             <StarShape fillPct={fillFor(i, active)} className="size-full" />
             <button
               type="button"
-              aria-label={`Rate ${leftValue} out of 10`}
+              aria-label={t("rating.rateOutOf", { n: leftValue })}
               className="absolute inset-y-0 left-0 w-1/2"
               onMouseEnter={() => setHover(leftValue)}
               onClick={() => {
@@ -89,7 +92,7 @@ export function StarRatingInput({
             />
             <button
               type="button"
-              aria-label={`Rate ${rightValue} out of 10`}
+              aria-label={t("rating.rateOutOf", { n: rightValue })}
               className="absolute inset-y-0 right-0 w-1/2"
               onMouseEnter={() => setHover(rightValue)}
               onClick={() => {

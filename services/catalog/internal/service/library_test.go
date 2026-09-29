@@ -12,38 +12,38 @@ import (
 // fakeLibrary behaves like the Postgres store: writes fail with
 // ErrMovieNotStored until the movie is in `stored`.
 type fakeLibrary struct {
-	stored  map[int]bool
-	list    map[int]bool
-	ratings map[int]int
+	stored  map[domain.TitleRef]bool
+	list    map[domain.TitleRef]bool
+	ratings map[domain.TitleRef]int
 	writes  int
 }
 
 func newFakeLibrary() *fakeLibrary {
-	return &fakeLibrary{stored: map[int]bool{}, list: map[int]bool{}, ratings: map[int]int{}}
+	return &fakeLibrary{stored: map[domain.TitleRef]bool{}, list: map[domain.TitleRef]bool{}, ratings: map[domain.TitleRef]int{}}
 }
 
-func (f *fakeLibrary) AddToWatchlist(_ context.Context, _ string, id int) (domain.WatchlistItem, error) {
+func (f *fakeLibrary) AddToWatchlist(_ context.Context, _ string, id domain.TitleRef) (domain.WatchlistItem, error) {
 	f.writes++
 	if !f.stored[id] {
 		return domain.WatchlistItem{}, domain.ErrMovieNotStored
 	}
 	f.list[id] = true
-	return domain.WatchlistItem{Movie: domain.Movie{ID: id}}, nil
+	return domain.WatchlistItem{Movie: domain.Movie{ID: id.ID, MediaType: id.MediaType}}, nil
 }
-func (f *fakeLibrary) RemoveFromWatchlist(_ context.Context, _ string, id int) error {
+func (f *fakeLibrary) RemoveFromWatchlist(_ context.Context, _ string, id domain.TitleRef) error {
 	delete(f.list, id)
 	return nil
 }
 func (f *fakeLibrary) GetUserWatchlist(context.Context, string) ([]domain.WatchlistItem, error) {
 	return nil, nil
 }
-func (f *fakeLibrary) UpsertUserRating(_ context.Context, _ string, id, rating int) (domain.UserRating, error) {
+func (f *fakeLibrary) UpsertUserRating(_ context.Context, _ string, id domain.TitleRef, rating int) (domain.UserRating, error) {
 	f.writes++
 	if !f.stored[id] {
 		return domain.UserRating{}, domain.ErrMovieNotStored
 	}
 	f.ratings[id] = rating
-	return domain.UserRating{Movie: domain.Movie{ID: id}, Rating: rating}, nil
+	return domain.UserRating{Movie: domain.Movie{ID: id.ID, MediaType: id.MediaType}, Rating: rating}, nil
 }
 func (f *fakeLibrary) GetUserRatings(context.Context, string) ([]domain.UserRating, error) {
 	return nil, nil
@@ -55,7 +55,7 @@ type fakeStorer struct {
 	err   error
 }
 
-func (s *fakeStorer) EnsureStored(_ context.Context, id int) error {
+func (s *fakeStorer) EnsureTitleStored(_ context.Context, id domain.TitleRef) error {
 	s.calls++
 	if s.err != nil {
 		return s.err
@@ -72,18 +72,18 @@ func TestLibraryStoresUnknownMovieThenRetries(t *testing.T) {
 	svc := service.NewLibrary(lib, storer)
 	ctx := context.Background()
 
-	if _, err := svc.AddToWatchlist(ctx, alice, 42); err != nil {
+	if _, err := svc.AddToWatchlist(ctx, alice, domain.MovieRef(42)); err != nil {
 		t.Fatal(err)
 	}
-	if !lib.list[42] || storer.calls != 1 || lib.writes != 2 {
+	if !lib.list[domain.MovieRef(42)] || storer.calls != 1 || lib.writes != 2 {
 		t.Fatalf("list=%v ensure calls=%d writes=%d", lib.list, storer.calls, lib.writes)
 	}
 
 	// Already stored: one write, no fetch.
-	if _, err := svc.RateMovie(ctx, alice, 42, 8); err != nil {
+	if _, err := svc.Rate(ctx, alice, domain.MovieRef(42), 8); err != nil {
 		t.Fatal(err)
 	}
-	if lib.ratings[42] != 8 || storer.calls != 1 || lib.writes != 3 {
+	if lib.ratings[domain.MovieRef(42)] != 8 || storer.calls != 1 || lib.writes != 3 {
 		t.Fatalf("ratings=%v ensure calls=%d writes=%d", lib.ratings, storer.calls, lib.writes)
 	}
 }
@@ -91,7 +91,7 @@ func TestLibraryStoresUnknownMovieThenRetries(t *testing.T) {
 func TestLibraryReportsMovieThatCannotBeStored(t *testing.T) {
 	lib := newFakeLibrary()
 	svc := service.NewLibrary(lib, &fakeStorer{lib: lib, err: domain.ErrNotFound})
-	if _, err := svc.RateMovie(context.Background(), alice, 999, 5); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := svc.Rate(context.Background(), alice, domain.MovieRef(999), 5); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)
 	}
 }
@@ -101,11 +101,11 @@ func TestLibraryValidatesInput(t *testing.T) {
 	svc := service.NewLibrary(lib, &fakeStorer{lib: lib})
 	ctx := context.Background()
 	for name, err := range map[string]error{
-		"rating 0":        func() error { _, err := svc.RateMovie(ctx, alice, 1, 0); return err }(),
-		"rating 11":       func() error { _, err := svc.RateMovie(ctx, alice, 1, 11); return err }(),
-		"movie 0 rate":    func() error { _, err := svc.RateMovie(ctx, alice, 0, 5); return err }(),
-		"movie 0 add":     func() error { _, err := svc.AddToWatchlist(ctx, alice, 0); return err }(),
-		"movie -1 remove": svc.RemoveFromWatchlist(ctx, alice, -1),
+		"rating 0":        func() error { _, err := svc.Rate(ctx, alice, domain.MovieRef(1), 0); return err }(),
+		"rating 11":       func() error { _, err := svc.Rate(ctx, alice, domain.MovieRef(1), 11); return err }(),
+		"movie 0 rate":    func() error { _, err := svc.Rate(ctx, alice, domain.MovieRef(0), 5); return err }(),
+		"movie 0 add":     func() error { _, err := svc.AddToWatchlist(ctx, alice, domain.MovieRef(0)); return err }(),
+		"movie -1 remove": svc.RemoveFromWatchlist(ctx, alice, domain.MovieRef(-1)),
 	} {
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("%s: got %v, want ErrInvalidInput", name, err)

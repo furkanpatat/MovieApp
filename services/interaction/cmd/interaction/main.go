@@ -85,9 +85,9 @@ func run() error {
 	if cfg.Interaction.APIEnabled {
 		srv = &http.Server{
 			Addr: cfg.HTTPAddr,
-			Handler: transport.NewHandler(service.NewCommand(repo), service.NewQuery(repo, rm, keep, log),
+			Handler: transport.NewHandler(service.NewCommand(repo), service.NewQuery(repo, rm, keep, log), service.NewAccount(repo, rm),
 				func() bool { return ping(ctx, pool.Ping) == nil }, // ready = can store events; broker state is irrelevant
-				log),
+				log, transport.WithModeration(service.NewModeration(repo, rm))),
 			ReadHeaderTimeout: 5 * time.Second,
 		}
 		go func() {

@@ -4,6 +4,7 @@ import { memo, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
+import { useT } from "@/i18n";
 import { profileUrl } from "@/lib/tmdb-image";
 
 interface CastMember {
@@ -44,11 +45,12 @@ function initials(name: string) {
 /** Top-billed cast as a horizontal rail, styled like the home page rows. */
 export const CastRow = memo(function CastRow({ castJson }: { castJson?: string }) {
   const cast = useMemo(() => parseCast(castJson), [castJson]);
+  const { t } = useT();
   if (cast.length === 0) return null;
 
   return (
-    <section aria-label="Cast">
-      <h2 className="mb-1 text-xl font-bold tracking-tight">Top cast</h2>
+    <section aria-label={t("detail.cast")}>
+      <h2 className="mb-1 text-xl font-bold tracking-tight">{t("detail.topCast")}</h2>
       <div className="hide-scrollbar -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-4 overflow-x-auto px-4 py-3 sm:-mx-8 sm:scroll-px-8 sm:px-8">
         {cast.map((c) => {
           const photo = profileUrl(c.profile_path);

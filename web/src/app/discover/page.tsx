@@ -1,17 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
+import { ActionRail } from "@/components/discover/action-rail";
+import { FeedPlayer } from "@/components/discover/feed-player";
 import Image from "next/image";
 import { motion, AnimatePresence, useInView } from "framer-motion";
-import { Bookmark, BookmarkCheck, Heart, MessageCircle, Share2, Users, Volume2, VolumeX } from "lucide-react";
-import { toast } from "sonner";
+import { Heart } from "lucide-react";
 
-import { usePopularMovies, useRateMovie, useInteractions, useMovieDetails } from "@/hooks/queries";
+import { useDiscover, useRateMovie, useInteractions, useTitleDetails } from "@/hooks/queries";
+import { titleHref, titleKey } from "@/lib/media";
+import { useT } from "@/i18n";
+import { useMediaMode } from "@/store/media-mode-store";
+import { GenrePicker } from "@/components/discover/genre-picker";
 import { backdropUrl, posterUrl } from "@/lib/tmdb-image";
 import type { Movie } from "@/types/movie";
 
 import { useFeedStore } from "@/store/feed-store";
-import { CommentSheet } from "@/components/movies/comment-section";
+import { useTitleModalStore } from "@/store/modal-store";
 import { useMyRating, useRequireAuth, useSavedToggle } from "@/hooks/use-library";
 import { RatingBadge } from "@/components/movies/rating-badge";
 
@@ -31,20 +37,22 @@ const DiscoverPost = memo(function DiscoverPost({
   fetchNextPage: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const isInView = useInView(ref, { amount: 0.6 });
+  // A title opened in the modal covers the feed: pause as if scrolled away.
+  const modalOpen = useTitleModalStore((s) => s.open);
+  const isInView = useInView(ref, { amount: 0.6 }) && !modalOpen;
 
   const [showHeart, setShowHeart] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   
-  const { isMuted, toggleMute } = useFeedStore();
+  const { isMuted, toggleMute, setMuted } = useFeedStore();
   
-  const rateMutation = useRateMovie(movie.id, movie);
-  const myRating = useMyRating(movie.id);
+  const rateMutation = useRateMovie(movie);
+  const myRating = useMyRating(movie);
   const requireAuth = useRequireAuth();
   const { saved, toggle: toggleSaved } = useSavedToggle(movie);
-  const { data: interactions } = useInteractions(movie.id);
-  const { data: details } = useMovieDetails(movie.id, isInView);
+  // Only the post on screen: the feed renders 20 posts per page.
+  const { data: interactions } = useInteractions(movie, isInView);
+  const { data: details } = useTitleDetails(movie, isInView);
 
   const videoKey = details?.trailer_key;
   const overview = details?.overview || movie.overview;
@@ -53,36 +61,9 @@ const DiscoverPost = memo(function DiscoverPost({
   const isLiked = (myRating ?? 0) >= 8 || rateMutation.isPending;
   const like = () => requireAuth(() => rateMutation.mutate(10));
 
-  // YouTube IFrame API command over postMessage (the player UI is hidden).
-  const sendCommand = (command: string) => {
-    if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        JSON.stringify({ event: "command", func: command }),
-        "*"
-      );
-    }
-  };
-
   useEffect(() => {
-    if (isInView) {
-      if (index >= totalMovies - 2 && hasNextPage) {
-        fetchNextPage();
-      }
-      if (iframeRef.current && isPlaying) {
-        sendCommand("playVideo");
-      }
-    } else {
-      if (iframeRef.current) {
-        sendCommand("pauseVideo");
-      }
-    }
-  }, [isInView, isPlaying, index, totalMovies, hasNextPage, fetchNextPage]);
-
-  useEffect(() => {
-    if (isInView && iframeRef.current) {
-      sendCommand(isMuted ? "mute" : "unMute");
-    }
-  }, [isMuted, isInView]);
+    if (isInView && index >= totalMovies - 2 && hasNextPage) fetchNextPage();
+  }, [isInView, index, totalMovies, hasNextPage, fetchNextPage]);
 
 
   const lastTapRef = useRef<number>(0);
@@ -104,19 +85,13 @@ const DiscoverPost = memo(function DiscoverPost({
       });
     } else {
       tapTimeoutRef.current = setTimeout(() => {
-        const nextPlaying = !isPlaying;
-        setIsPlaying(nextPlaying);
-        sendCommand(nextPlaying ? "playVideo" : "pauseVideo");
+        setIsPlaying((playing) => !playing);
       }, DOUBLE_TAP_DELAY);
     }
     
     lastTapRef.current = now;
   };
 
-  const handleToggleMute = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    toggleMute();
-  };
 
   const backdrop = backdropUrl(movie.backdrop_path, "original") || posterUrl(movie.poster_path, "w500");
 
@@ -125,13 +100,7 @@ const DiscoverPost = memo(function DiscoverPost({
       <div className="absolute inset-0">
         {videoKey && isInView ? (
           <div className="absolute inset-0 pointer-events-none">
-            <iframe
-              ref={iframeRef}
-              onLoad={() => sendCommand(isMuted ? "mute" : "unMute")}
-              src={`https://www.youtube.com/embed/${videoKey}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&modestbranding=1&rel=0&playsinline=1&enablejsapi=1&loop=1&playlist=${videoKey}`}
-              allow="autoplay"
-              className="absolute left-1/2 top-1/2 h-[300%] w-[300%] -translate-x-1/2 -translate-y-1/2 sm:h-[150%] sm:w-[150%] object-cover pointer-events-none"
-            />
+            <FeedPlayer videoKey={videoKey} playing={isPlaying} muted={isMuted} onSoundBlocked={() => setMuted(true)} />
           </div>
         ) : (
           backdrop && (
@@ -171,7 +140,9 @@ const DiscoverPost = memo(function DiscoverPost({
 
       <div className="absolute bottom-0 left-0 z-20 w-3/4 p-4 pb-6 sm:p-6 sm:pb-8 pointer-events-none">
         <h2 className="text-2xl font-bold text-white sm:text-3xl drop-shadow-md">
-          {movie.title}
+          <Link href={titleHref(movie)} className="pointer-events-auto hover:underline underline-offset-4">
+            {movie.title}
+          </Link>
         </h2>
         <div className="mt-2 flex items-center gap-2 text-sm text-zinc-300">
           <RatingBadge movie={details ?? movie} size="md" />
@@ -183,140 +154,84 @@ const DiscoverPost = memo(function DiscoverPost({
         </p>
       </div>
 
-      <div className="absolute bottom-6 right-4 z-20 flex flex-col items-center gap-5 sm:bottom-8 sm:right-6">
-        <div className="flex flex-col items-center gap-1">
-          <button
-            aria-label="Toggle Mute"
-            className="group rounded-full bg-black/40 p-3 text-white backdrop-blur-md transition hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            onClick={handleToggleMute}
-          >
-            {isMuted ? (
-              <VolumeX className="size-7 transition-transform group-hover:scale-110" />
-            ) : (
-              <Volume2 className="size-7 transition-transform group-hover:scale-110" />
-            )}
-          </button>
-        </div>
-
-        <div className="flex flex-col items-center gap-1">
-          <button
-            aria-label="Like"
-            className="group rounded-full bg-black/40 p-3 text-white backdrop-blur-md transition hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            onClick={(e) => {
-              e.stopPropagation();
-              like();
-            }}
-          >
-            <Heart className={`size-7 transition-transform group-hover:scale-110 ${isLiked ? 'fill-primary text-primary' : ''}`} />
-          </button>
-          <span className="text-xs font-medium text-white drop-shadow-sm">
-            {interactions?.total_votes ?? movie.vote_count ?? 0}
-          </span>
-        </div>
-
-        <div className="flex flex-col items-center gap-1">
-          <CommentSheet
-            movieId={movie.id}
-            title={movie.title}
-            trigger={
-              <button
-                aria-label="Comments"
-                className="group rounded-full bg-black/40 p-3 text-white backdrop-blur-md transition hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <MessageCircle className="size-7 transition-transform group-hover:scale-110" />
-              </button>
-            }
-          />
-          <span className="text-xs font-medium text-white drop-shadow-sm">
-            {interactions?.recent_comments?.length ?? 0}
-          </span>
-        </div>
-
-        <div className="flex flex-col items-center gap-1">
-          <button
-            aria-label={saved ? "Remove from My List" : "Add to My List"}
-            aria-pressed={saved}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleSaved();
-            }}
-            className="group rounded-full bg-black/40 p-3 text-white backdrop-blur-md transition hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            {saved ? (
-              <BookmarkCheck className="size-7 text-primary transition-transform group-hover:scale-110" />
-            ) : (
-              <Bookmark className="size-7 transition-transform group-hover:scale-110" />
-            )}
-          </button>
-          <span className="text-xs font-medium text-white drop-shadow-sm">{saved ? "Saved" : "Save"}</span>
-        </div>
-
-        <div className="flex flex-col items-center gap-1">
-          {/* No /party route yet; Watch Party is a placeholder until it ships. */}
-          <button
-            type="button"
-            aria-label="Watch Party"
-            onClick={() => toast("🍿 Watch Party feature is coming soon!", { id: "watch-party-soon" })}
-            className="group rounded-full bg-black/40 p-3 text-white backdrop-blur-md transition hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <Users className="size-7 transition-transform group-hover:scale-110" />
-          </button>
-          <span className="text-xs font-medium text-white drop-shadow-sm">Party</span>
-        </div>
-
-        <div className="flex flex-col items-center gap-1">
-          <button
-            aria-label="Share"
-            className="group rounded-full bg-black/40 p-3 text-white backdrop-blur-md transition hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <Share2 className="size-7 transition-transform group-hover:scale-110" />
-          </button>
-          <span className="text-xs font-medium text-white drop-shadow-sm">Share</span>
-        </div>
-      </div>
+      <ActionRail
+        movie={movie}
+        muted={isMuted}
+        onToggleMute={toggleMute}
+        liked={isLiked}
+        likes={interactions?.total_votes ?? movie.vote_count ?? 0}
+        onLike={like}
+        comments={interactions?.recent_comments?.length ?? 0}
+        saved={saved}
+        onToggleSaved={toggleSaved}
+      />
     </div>
   );
 });
 
 export default function DiscoverPage() {
-  const { data, fetchNextPage, hasNextPage, isLoading } = usePopularMovies();
-  const movies = data?.pages.flatMap((p) => p.results) ?? [];
+  const { t } = useT();
+  // Movies or series (the logo switch), each with its own genre filter.
+  const { mode, ready } = useMediaMode();
+  const genreId = useFeedStore((s) => s.genres[mode] ?? 0);
+  const setGenre = useFeedStore((s) => s.setGenre);
+  // A new random start on every visit (and every genre switch).
+  const [seed] = useState(() => Math.floor(Math.random() * 2 ** 31));
+  // Wait for the saved genre (localStorage) rather than fetch "all" first.
+  const hydrated = useSyncExternalStore(
+    (onChange) => useFeedStore.persist.onFinishHydration(onChange),
+    () => useFeedStore.persist.hasHydrated(),
+    () => false,
+  );
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isPending, isError, refetch } = useDiscover(
+    mode,
+    genreId,
+    seed,
+    hydrated && ready,
+  );
 
-  if (isLoading) {
-    return (
-      <div className="flex h-dvh w-full items-center justify-center bg-zinc-950">
-        <div className="size-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    );
-  }
+  // Pages overlap as popularity shifts; the feed is keyed by title.
+  const movies = useMemo(() => {
+    const seen = new Set<string>();
+    return (data?.pages ?? []).flatMap((p) => p.results).filter((m) => !seen.has(titleKey(m)) && seen.add(titleKey(m)));
+  }, [data]);
 
-  if (!movies.length) return null;
+  // A start page past a small genre's end comes back empty: move on.
+  useEffect(() => {
+    if (data && movies.length === 0 && hasNextPage && !isFetchingNextPage) fetchNextPage();
+  }, [data, movies.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
-    <div
-      className="h-dvh w-full snap-y snap-mandatory overflow-y-scroll bg-zinc-950 scroll-smooth transform-gpu will-change-transform"
-      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-    >
-      <style dangerouslySetInnerHTML={{ __html: `
-        ::-webkit-scrollbar {
-          display: none;
-        }
-      `}} />
-      
-      {movies.map((movie, idx) => {
-        const isNearEnd = idx >= movies.length - 2;
-        return (
-          <div key={`${movie.id}-${idx}`} className="snap-center h-dvh w-full snap-always">
-            <DiscoverPost 
-              movie={movie} 
-              index={idx}
-              totalMovies={movies.length}
-              hasNextPage={hasNextPage}
-              fetchNextPage={fetchNextPage}
-            />
-          </div>
-        );
-      })}
+    <div className="relative h-dvh w-full bg-zinc-950">
+      <GenrePicker mode={mode} value={genreId} onChange={(id) => setGenre(mode, id)} />
+
+      {isPending || (movies.length === 0 && hasNextPage) ? (
+        <div className="flex h-full w-full items-center justify-center">
+          <div className="size-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        </div>
+      ) : isError || movies.length === 0 ? (
+        <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+          <p className="text-lg font-semibold">{t("discover.loadFailed")}</p>
+          <button type="button" onClick={() => refetch()} className="rounded-full bg-white/10 px-5 py-2 text-sm font-semibold hover:bg-white/20">
+            {t("common.tryAgain")}
+          </button>
+        </div>
+      ) : (
+        // Keyed by mode and genre: a new filter starts at the top of its own feed.
+        <div key={`${mode}-${genreId}`} className="hide-scrollbar h-dvh w-full snap-y snap-mandatory overflow-y-scroll scroll-smooth transform-gpu will-change-transform">
+          {movies.map((movie, idx) => (
+            <div key={titleKey(movie)} className="snap-center h-dvh w-full snap-always">
+              <DiscoverPost
+                movie={movie}
+                index={idx}
+                totalMovies={movies.length}
+                hasNextPage={hasNextPage}
+                fetchNextPage={fetchNextPage}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,173 @@
+import { useFocusEffect } from "expo-router";
+import * as ScreenOrientation from "expo-screen-orientation";
+import { StatusBar } from "expo-status-bar";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, useWindowDimensions, View, type ViewToken } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { FeedPost } from "@/components/feed-post";
+import { GenrePicker } from "@/components/genre-picker";
+import { useT } from "@/i18n";
+import { TABLET_MIN_SIDE } from "@/lib/layout";
+import { useDiscoverFeed, useMyRatings } from "@/lib/queries";
+import { useChrome } from "@/store/chrome";
+import { useFeed } from "@/store/feed";
+import { useMode } from "@/store/mode";
+import { colors } from "@/theme";
+import type { Movie } from "@/types/movie";
+
+/**
+ * Discover: a vertical, full-screen trailer feed. One post per page; only
+ * the one on screen plays, and only while this tab is focused. More pages
+ * load as you near the end; pull down at the top for a fresh feed.
+ */
+export default function Discover() {
+  const mode = useMode((s) => s.mode);
+  const { t } = useT();
+  // A new random start and order on each visit, and on pull-to-refresh.
+  const [seed, setSeed] = useState(newSeed);
+  const genre = useFeed((s) => s.genres[mode] ?? 0);
+  const setGenre = useFeed((s) => s.setGenre);
+  const feed = useDiscoverFeed(mode, seed, genre);
+  const ratings = useMyRatings();
+  const { width, height } = useWindowDimensions();
+  const phone = Math.min(width, height) < TABLET_MIN_SIDE;
+  const list = useRef<FlatList<Movie>>(null);
+
+  // A phone on its side watches the trailer alone: tab bar, status bar and
+  // overlays hide; a tap brings them back for a few seconds.
+  const [controls, setControls] = useState(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const showControls = useCallback(() => {
+    setControls(true);
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => setControls(false), 4000);
+  }, []);
+  useEffect(() => () => clearTimeout(hideTimer.current), []);
+  const insets = useSafeAreaInsets();
+  const [active, setActive] = useState(0);
+  // Turned: pages change size, so snap back onto the post being watched.
+  const activeRef = useRef(0);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+  useEffect(() => {
+    list.current?.scrollToOffset({ offset: activeRef.current * height, animated: false });
+  }, [height]);
+  const [focused, setFocused] = useState(true);
+  const immersive = phone && width > height && focused && !controls;
+  useEffect(() => {
+    useChrome.getState().setImmersive(immersive);
+    return () => useChrome.getState().setImmersive(false);
+  }, [immersive]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      // Trailers are wide: on a phone (upright everywhere else, see the root
+      // layout) the feed may turn to landscape while it's on screen.
+      if (phone) void ScreenOrientation.unlockAsync().catch(() => {});
+      return () => {
+        setFocused(false);
+        if (phone) void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+      };
+    }, [phone]),
+  );
+
+  // Pages can repeat a title; keep the first, and only titles with a picture.
+  const items = useMemo(() => {
+    const seen = new Set<number>();
+    const out: Movie[] = [];
+    for (const page of feed.data?.pages ?? []) {
+      for (const m of page.results) {
+        if (seen.has(m.id) || !(m.backdrop_path || m.poster_path)) continue;
+        seen.add(m.id);
+        out.push(m);
+      }
+    }
+    return out;
+  }, [feed.data]);
+
+  const liked = useMemo(
+    () => new Set((ratings.data?.items ?? []).filter((r) => r.rating >= 8).map((r) => `${r.movie.media_type ?? "movie"}:${r.movie.id}`)),
+    [ratings.data],
+  );
+
+  // FlatList wants the same callback for its whole life.
+  const [onViewable] = useState(() => ({ viewableItems }: { viewableItems: ViewToken<Movie>[] }) => {
+    const first = viewableItems[0];
+    if (first?.index != null) setActive(first.index);
+  });
+
+  return (
+    <View style={styles.screen}>
+      {/* Loading, failed or empty: the header (and its genre picker) stays. */}
+      {feed.isPending ? (
+        <ActivityIndicator style={styles.center} color={colors.gold} />
+      ) : feed.isError ? (
+        <Text style={[styles.center, styles.error]}>{t.discover.failed}</Text>
+      ) : items.length === 0 ? (
+        <Text style={[styles.center, styles.muted]}>{t.discover.empty}</Text>
+      ) : (
+      <FlatList
+        ref={list}
+        key={`${mode}-${genre}-${seed}`}
+        data={items}
+        keyExtractor={(m) => `${m.media_type ?? mode}:${m.id}`}
+        renderItem={({ item, index }) => (
+          <FeedPost
+            movie={item}
+            mode={mode}
+            height={height}
+            active={focused && index === active}
+            near={Math.abs(index - active) <= 1}
+            liked={liked.has(`${item.media_type ?? mode}:${item.id}`)}
+            bare={immersive}
+            onTouch={phone && width > height ? showControls : undefined}
+          />
+        )}
+        pagingEnabled
+        contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
+        decelerationRate="fast"
+        showsVerticalScrollIndicator={false}
+        getItemLayout={(_, index) => ({ length: height, offset: height * index, index })}
+        onViewableItemsChanged={onViewable}
+        viewabilityConfig={VIEWABILITY}
+        windowSize={3}
+        initialNumToRender={2}
+        maxToRenderPerBatch={2}
+        onEndReached={() => feed.hasNextPage && !feed.isFetchingNextPage && void feed.fetchNextPage()}
+        onEndReachedThreshold={2}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            onRefresh={() => (setSeed(newSeed()), setActive(0))}
+            tintColor={colors.gold}
+            colors={[colors.gold]}
+            progressViewOffset={insets.top}
+          />
+        }
+      />
+      )}
+      <StatusBar hidden={immersive} style="light" />
+      {!immersive && (
+        <View style={[styles.header, { top: insets.top + 8 }]} pointerEvents="box-none">
+          <GenrePicker mode={mode} value={genre} onChange={(id) => (setGenre(mode, id), setActive(0))} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+const VIEWABILITY = { itemVisiblePercentThreshold: 60 };
+
+const newSeed = () => Math.floor(Math.random() * 1_000_000);
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.bg },
+  center: { marginTop: 280, alignSelf: "center", textAlign: "center", paddingHorizontal: 32 },
+  error: { color: colors.danger },
+  header: { position: "absolute", left: 0, right: 0, alignItems: "center" },
+  muted: { color: colors.mute },
+});

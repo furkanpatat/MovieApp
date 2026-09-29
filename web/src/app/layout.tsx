@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import { Geist_Mono, Outfit } from "next/font/google";
 
 import { Providers } from "@/components/providers/providers";
+import { SiteFooter } from "@/components/layout/site-footer";
 import { TopNav } from "@/components/layout/top-nav";
+import { Assistant } from "@/components/assistant/assistant";
+import { HtmlLang } from "@/components/layout/language-toggle";
 import "./globals.css";
 
 // Variable font: every weight from one file, no `weight` list needed.
@@ -16,12 +19,18 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// KinoCut (movies) ⇄ KinoShow (series): "Kino" is the Nordic word for cinema.
 export const metadata: Metadata = {
-  title: "MovieApp",
-  description: "A cinematic, real-time movie discovery and watch-party app.",
+  title: "KinoCut",
+  description: "KinoCut & KinoShow: discover movies and series, and watch them together in real time.",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+// `modal` is the @modal parallel route: a movie or series opened from within
+// the app renders there, over `children`, which stays mounted underneath.
+export default function RootLayout({
+  children,
+  modal,
+}: Readonly<{ children: React.ReactNode; modal: React.ReactNode }>) {
   return (
     <html
       lang="en"
@@ -31,6 +40,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <Providers>
           <TopNav />
           <main className="flex flex-1 flex-col">{children}</main>
+          <SiteFooter />
+          {modal}
+          <Assistant />
+          <HtmlLang />
         </Providers>
       </body>
     </html>

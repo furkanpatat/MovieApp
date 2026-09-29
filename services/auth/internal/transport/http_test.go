@@ -17,6 +17,7 @@ import (
 	"github.com/furkanpatat/movieapp/services/auth/internal/domain"
 	"github.com/furkanpatat/movieapp/services/auth/internal/password"
 	"github.com/furkanpatat/movieapp/services/auth/internal/service"
+	"github.com/furkanpatat/movieapp/services/auth/internal/testsupport"
 	"github.com/furkanpatat/movieapp/services/auth/internal/transport"
 )
 
@@ -45,9 +46,29 @@ func (r *memRepo) FindByLogin(_ context.Context, l string) (domain.User, error) 
 	return domain.User{}, domain.ErrNotFound
 }
 
+func (r *memRepo) Delete(_ context.Context, id string) error {
+	for i, x := range r.users {
+		if x.ID == id {
+			r.users = append(r.users[:i], r.users[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (r *memRepo) FindByID(_ context.Context, id string) (domain.User, error) {
+	for _, x := range r.users {
+		if x.ID == id {
+			return x, nil
+		}
+	}
+	return domain.User{}, domain.ErrNotFound
+}
+
 func server(t *testing.T) http.Handler {
 	b, _ := password.NewBcrypt(bcrypt.MinCost)
-	svc, err := service.New(&memRepo{}, b, jwtauth.NewManager(secret, "movieapp-auth", time.Hour), quiet)
+	svc, err := service.New(&memRepo{}, b, jwtauth.NewManager(secret, "movieapp-auth", time.Hour), quiet,
+		service.WithRefresh(testsupport.NewMemRefresh(), time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,5 +218,110 @@ func TestLogoutClearsSessionCookie(t *testing.T) {
 	cookies := rec.Result().Cookies()
 	if len(cookies) != 1 || cookies[0].Name != jwtauth.CookieName || cookies[0].MaxAge >= 0 || cookies[0].Path != jwtauth.CookiePath {
 		t.Fatalf("expected a deleting %s cookie, got %q", jwtauth.CookieName, rec.Header().Values("Set-Cookie"))
+	}
+}
+
+func session(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func TestLoginGivesARefreshTokenOnlyWhenAsked(t *testing.T) {
+	h := server(t)
+	post(h, "/api/v1/auth/register", registerBody)
+	plain := session(t, post(h, "/api/v1/auth/login", `{"login":"alice","password":"s3cret-password"}`))
+	if _, ok := plain["refresh_token"]; ok {
+		t.Fatal("a browser login must not get a refresh token")
+	}
+	withRefresh := session(t, post(h, "/api/v1/auth/login", `{"login":"alice","password":"s3cret-password","refresh":true}`))
+	if tok, _ := withRefresh["refresh_token"].(string); len(tok) < 40 {
+		t.Fatalf("refresh_token: %v", withRefresh["refresh_token"])
+	}
+	if exp, _ := withRefresh["refresh_expires_in"].(float64); exp <= 0 {
+		t.Fatalf("refresh_expires_in: %v", withRefresh["refresh_expires_in"])
+	}
+}
+
+func TestRefreshEndpointRotatesAndRejectsSpentTokens(t *testing.T) {
+	h := server(t)
+	post(h, "/api/v1/auth/register", registerBody)
+	login := session(t, post(h, "/api/v1/auth/login", `{"login":"alice","password":"s3cret-password","refresh":true}`))
+	first := login["refresh_token"].(string)
+
+	rec := post(h, "/api/v1/auth/refresh", `{"refresh_token":"`+first+`"}`)
+	next := session(t, rec)
+	if next["access_token"] == "" || next["refresh_token"] == first || next["user"].(map[string]any)["username"] != "alice" {
+		t.Fatalf("refresh body: %v", next)
+	}
+	if rec.Header().Get("Set-Cookie") != "" {
+		t.Fatal("refresh must not touch the browser cookie")
+	}
+	if rec := post(h, "/api/v1/auth/refresh", `{"refresh_token":"`+first+`"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("spent token: status %d", rec.Code)
+	}
+	if rec := post(h, "/api/v1/auth/refresh", `{"refresh_token":"garbage"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("garbage: status %d", rec.Code)
+	}
+}
+
+func TestLogoutRevokesTheRefreshToken(t *testing.T) {
+	h := server(t)
+	post(h, "/api/v1/auth/register", registerBody)
+	tok := session(t, post(h, "/api/v1/auth/login", `{"login":"alice","password":"s3cret-password","refresh":true}`))["refresh_token"].(string)
+	if rec := post(h, "/api/v1/auth/logout", `{"refresh_token":"`+tok+`"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("logout: %d", rec.Code)
+	}
+	if rec := post(h, "/api/v1/auth/refresh", `{"refresh_token":"`+tok+`"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("after logout: status %d", rec.Code)
+	}
+}
+
+func do(h http.Handler, method, path, body, userID string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if userID != "" {
+		req.Header.Set("X-User-Id", userID)
+	}
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestAccountEndpointsNeedTheGatewaysUserID(t *testing.T) {
+	h := server(t)
+	post(h, "/api/v1/auth/register", registerBody)
+	if rec := do(h, "POST", "/api/v1/auth/password/verify", `{"password":"s3cret-password"}`, ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("verify without X-User-Id: %d", rec.Code)
+	}
+	if rec := do(h, "DELETE", "/api/v1/auth/account", "", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("delete without X-User-Id: %d", rec.Code)
+	}
+}
+
+func TestDeleteAccount(t *testing.T) {
+	h := server(t)
+	post(h, "/api/v1/auth/register", registerBody)
+	userID := session(t, post(h, "/api/v1/auth/login", `{"login":"alice","password":"s3cret-password"}`))["user"].(map[string]any)["id"].(string)
+	if rec := do(h, "POST", "/api/v1/auth/password/verify", `{"password":"wrong-password"}`, userID); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong password: %d", rec.Code)
+	}
+	if rec := do(h, "POST", "/api/v1/auth/password/verify", `{"password":"s3cret-password"}`, userID); rec.Code != http.StatusNoContent {
+		t.Fatalf("right password: %d %s", rec.Code, rec.Body)
+	}
+	rec := do(h, "DELETE", "/api/v1/auth/account", "", userID)
+	if rec.Code != http.StatusNoContent || !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=0") {
+		t.Fatalf("delete: %d, cookie %q", rec.Code, rec.Header().Get("Set-Cookie"))
+	}
+	if rec := post(h, "/api/v1/auth/login", `{"login":"alice","password":"s3cret-password"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("login after deletion: %d", rec.Code)
+	}
+	if rec := do(h, "DELETE", "/api/v1/auth/account", "", userID); rec.Code != http.StatusNoContent {
+		t.Fatalf("a retried delete must succeed: %d", rec.Code)
 	}
 }

@@ -3,6 +3,9 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,9 +24,21 @@ type Auth struct {
 	// dummyHash is compared against when the login is unknown, so "no such
 	// user" costs as much time as "wrong password" and cannot be told apart.
 	dummyHash string
+
+	refresh    domain.RefreshStore // nil: no refresh tokens
+	refreshTTL time.Duration
 }
 
-func New(repo domain.Repository, hasher domain.PasswordHasher, tokens domain.TokenIssuer, log *slog.Logger) (*Auth, error) {
+// Option configures optional Auth features.
+type Option func(*Auth)
+
+// WithRefresh enables refresh tokens (long sessions for API clients), kept
+// in store and valid for ttl.
+func WithRefresh(store domain.RefreshStore, ttl time.Duration) Option {
+	return func(a *Auth) { a.refresh, a.refreshTTL = store, ttl }
+}
+
+func New(repo domain.Repository, hasher domain.PasswordHasher, tokens domain.TokenIssuer, log *slog.Logger, opts ...Option) (*Auth, error) {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -31,7 +46,11 @@ func New(repo domain.Repository, hasher domain.PasswordHasher, tokens domain.Tok
 	if err != nil {
 		return nil, fmt.Errorf("prepare dummy hash: %w", err)
 	}
-	return &Auth{repo: repo, hasher: hasher, tokens: tokens, log: log, dummyHash: dummy}, nil
+	a := &Auth{repo: repo, hasher: hasher, tokens: tokens, log: log, dummyHash: dummy}
+	for _, opt := range opts {
+		opt(a)
+	}
+	return a, nil
 }
 
 // Register creates an account. The password is stored only as a bcrypt hash.
@@ -56,6 +75,9 @@ type LoginResult struct {
 	Token   string
 	Expires time.Time
 	User    domain.User
+	// A refresh token, when one was asked for (see IssueRefresh, Refresh).
+	RefreshToken   string
+	RefreshExpires time.Time
 }
 
 // Login verifies credentials and returns a signed token whose subject is the
@@ -87,4 +109,123 @@ func (a *Auth) Login(ctx context.Context, login, password string) (LoginResult, 
 	}
 	a.log.Info("login succeeded", "user_id", u.ID)
 	return LoginResult{Token: tok, Expires: exp, User: u}, nil
+}
+
+// Refresh tokens: 32 random bytes (base64url), stored only as a SHA-256.
+// They're high-entropy, so a fast hash is enough (unlike passwords).
+
+const refreshBytes = 32
+
+func newRefreshToken() (token string, hash []byte, err error) {
+	b := make([]byte, refreshBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", nil, err
+	}
+	token = base64.RawURLEncoding.EncodeToString(b)
+	return token, hashRefresh(token), nil
+}
+
+func hashRefresh(token string) []byte {
+	sum := sha256.Sum256([]byte(token))
+	return sum[:]
+}
+
+func newFamilyID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // UUID v4
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
+}
+
+// IssueRefresh starts a refresh-token family for a user who just signed in.
+func (a *Auth) IssueRefresh(ctx context.Context, userID string) (string, time.Time, error) {
+	if a.refresh == nil {
+		return "", time.Time{}, errors.New("refresh tokens are not enabled")
+	}
+	family, err := newFamilyID()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	token, hash, err := newRefreshToken()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	exp := time.Now().Add(a.refreshTTL)
+	if err := a.refresh.SaveRefresh(ctx, userID, family, hash, exp); err != nil {
+		return "", time.Time{}, fmt.Errorf("save refresh token: %w", err)
+	}
+	return token, exp, nil
+}
+
+// Refresh exchanges a refresh token for a new access token and the next
+// refresh token (the presented one is consumed). A replayed token revokes
+// its family: whoever holds the newer one is signed out too, and signs in
+// again with their password.
+func (a *Auth) Refresh(ctx context.Context, token string) (LoginResult, error) {
+	if a.refresh == nil || token == "" {
+		return LoginResult{}, domain.ErrInvalidToken
+	}
+	next, nextHash, err := newRefreshToken()
+	if err != nil {
+		return LoginResult{}, err
+	}
+	exp := time.Now().Add(a.refreshTTL)
+	userID, err := a.refresh.RotateRefresh(ctx, hashRefresh(token), nextHash, exp)
+	switch {
+	case errors.Is(err, domain.ErrTokenReused):
+		a.log.Warn("refresh token reused: family revoked")
+		return LoginResult{}, domain.ErrInvalidToken
+	case err != nil:
+		return LoginResult{}, err
+	}
+	u, err := a.repo.FindByID(ctx, userID)
+	if err != nil {
+		return LoginResult{}, fmt.Errorf("find user: %w", err)
+	}
+	tok, texp, err := a.tokens.Issue(u.ID)
+	if err != nil {
+		return LoginResult{}, fmt.Errorf("issue token: %w", err)
+	}
+	return LoginResult{Token: tok, Expires: texp, User: u, RefreshToken: next, RefreshExpires: exp}, nil
+}
+
+// RevokeRefresh signs a refresh-token family out (logout). Unknown tokens
+// are ignored.
+func (a *Auth) RevokeRefresh(ctx context.Context, token string) error {
+	if a.refresh == nil || token == "" {
+		return nil
+	}
+	return a.refresh.RevokeRefresh(ctx, hashRefresh(token))
+}
+
+// VerifyPassword checks the signed-in user's password (before an account
+// deletion). A wrong password and an unknown user are both
+// ErrInvalidCredentials.
+func (a *Auth) VerifyPassword(ctx context.Context, userID, password string) error {
+	u, err := a.repo.FindByID(ctx, userID)
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		_ = a.hasher.Compare(a.dummyHash, password) // the same time as a real check
+		return domain.ErrInvalidCredentials
+	case err != nil:
+		return fmt.Errorf("find user: %w", err)
+	}
+	if password == "" || len(password) > domain.MaxPasswordLen || a.hasher.Compare(u.PasswordHash, password) != nil {
+		a.log.Info("password check failed", "user_id", userID)
+		return domain.ErrInvalidCredentials
+	}
+	return nil
+}
+
+// DeleteAccount removes the user and, with them, their library and
+// sessions. An already deleted account is not an error (a retry).
+func (a *Auth) DeleteAccount(ctx context.Context, userID string) error {
+	if err := a.repo.Delete(ctx, userID); err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	a.log.Info("account deleted", "user_id", userID)
+	return nil
 }

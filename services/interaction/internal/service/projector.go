@@ -38,7 +38,7 @@ func (p *Projector) HandleRating(ctx context.Context, e domain.RatingSubmitted) 
 		return fmt.Errorf("update read model: %w", err)
 	}
 	if !applied { // no model yet (or Redis was flushed): build the whole thing from Postgres
-		return p.rebuild(ctx, e.MovieID)
+		return p.rebuild(ctx, e.Title())
 	}
 	return nil
 }
@@ -51,36 +51,36 @@ func (p *Projector) HandleComment(ctx context.Context, e domain.CommentAdded) er
 		return fmt.Errorf("save comment: %w", err)
 	}
 	c := domain.Comment{ID: e.EventID, UserID: e.UserID, Text: e.Text, CreatedAt: domain.NormalizeTime(e.OccurredAt)}
-	applied, err := p.rm.AddComment(ctx, e.MovieID, c)
+	applied, err := p.rm.AddComment(ctx, e.Title(), c)
 	if err != nil {
 		return fmt.Errorf("update read model: %w", err)
 	}
 	if !applied {
-		return p.rebuild(ctx, e.MovieID)
+		return p.rebuild(ctx, e.Title())
 	}
 	return nil
 }
 
-func (p *Projector) rebuild(ctx context.Context, movieID int) error {
-	if _, _, err := buildFromSource(ctx, p.repo, p.rm, movieID, p.keep); err != nil {
+func (p *Projector) rebuild(ctx context.Context, t domain.Title) error {
+	if _, _, err := buildFromSource(ctx, p.repo, p.rm, t, p.keep); err != nil {
 		return fmt.Errorf("rebuild read model: %w", err)
 	}
 	return nil
 }
 
 // loadSource reads a movie's aggregate and recent comments from Postgres.
-func loadSource(ctx context.Context, repo domain.Repository, movieID, keep int) (domain.RatingStats, []domain.Comment, error) {
-	stats, err := repo.GetStats(ctx, movieID)
+func loadSource(ctx context.Context, repo domain.Repository, t domain.Title, keep int) (domain.RatingStats, []domain.Comment, error) {
+	stats, err := repo.GetStats(ctx, t)
 	if err != nil {
 		return stats, nil, err
 	}
-	comments, err := repo.RecentComments(ctx, movieID, keep)
+	comments, err := repo.RecentComments(ctx, t, keep)
 	return stats, comments, err
 }
 
 // buildFromSource loads from Postgres and materialises in the read model.
-func buildFromSource(ctx context.Context, repo domain.Repository, rm domain.ReadModel, movieID, keep int) (domain.RatingStats, []domain.Comment, error) {
-	stats, comments, err := loadSource(ctx, repo, movieID, keep)
+func buildFromSource(ctx context.Context, repo domain.Repository, rm domain.ReadModel, t domain.Title, keep int) (domain.RatingStats, []domain.Comment, error) {
+	stats, comments, err := loadSource(ctx, repo, t, keep)
 	if err != nil {
 		return stats, comments, err
 	}

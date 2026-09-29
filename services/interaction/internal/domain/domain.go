@@ -18,7 +18,48 @@ const (
 	MaxUserIDLen  = 64
 )
 
-var ErrInvalidInput = errors.New("invalid input")
+var (
+	ErrInvalidInput = errors.New("invalid input")
+	ErrNotFound     = errors.New("not found")
+)
+
+// Media types. TMDB numbers movies and TV series separately (movie 1399 and
+// tv 1399 are different titles), so a title is identified by both.
+const (
+	MediaMovie = "movie"
+	MediaTV    = "tv"
+)
+
+// Title is what gets rated and commented on: a movie or a TV series.
+type Title struct {
+	Media string // MediaMovie or MediaTV
+	ID    int    // TMDB id
+}
+
+// Movie is the title of a movie (what an id meant before series).
+func Movie(id int) Title { return Title{Media: MediaMovie, ID: id} }
+
+func (t Title) Validate() error {
+	switch {
+	case t.Media != MediaMovie && t.Media != MediaTV:
+		return invalid("media_type must be %q or %q", MediaMovie, MediaTV)
+	case t.ID < 1:
+		return invalid("id must be positive")
+	}
+	return nil
+}
+
+// String is "movie:27205" / "tv:1399": unique across media types.
+func (t Title) String() string { return fmt.Sprintf("%s:%d", t.Media, t.ID) }
+
+// titleOf reads an event's (media_type, movie_id); events from before
+// series have no media_type and are movies.
+func titleOf(media string, id int) Title {
+	if media == "" {
+		media = MediaMovie
+	}
+	return Title{Media: media, ID: id}
+}
 
 func invalid(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidInput, fmt.Sprintf(format, a...))
@@ -28,7 +69,10 @@ func invalid(format string, a ...any) error {
 
 // RatingSubmitted: a user rated a movie. Re-rating replaces the earlier score.
 type RatingSubmitted struct {
-	EventID    string    `json:"event_id"`
+	EventID string `json:"event_id"`
+	// MediaType and MovieID name the title (movie_id is the TMDB id of a
+	// movie or a series; the name predates series). Empty MediaType: movie.
+	MediaType  string    `json:"media_type,omitempty"`
 	MovieID    int       `json:"movie_id"`
 	UserID     string    `json:"user_id"`
 	Score      int       `json:"score"`
@@ -38,18 +82,24 @@ type RatingSubmitted struct {
 // CommentAdded: a user commented on a movie.
 type CommentAdded struct {
 	EventID    string    `json:"event_id"`
+	MediaType  string    `json:"media_type,omitempty"` // see RatingSubmitted
 	MovieID    int       `json:"movie_id"`
 	UserID     string    `json:"user_id"`
 	Text       string    `json:"text"`
 	OccurredAt time.Time `json:"occurred_at"`
 }
 
-func validateCommon(eventID string, movieID int, userID string) error {
-	switch {
-	case eventID == "":
+func (e RatingSubmitted) Title() Title { return titleOf(e.MediaType, e.MovieID) }
+func (e CommentAdded) Title() Title    { return titleOf(e.MediaType, e.MovieID) }
+
+func validateCommon(eventID string, title Title, userID string) error {
+	if eventID == "" {
 		return invalid("event_id is required")
-	case movieID < 1:
-		return invalid("movie id must be positive")
+	}
+	if err := title.Validate(); err != nil {
+		return err
+	}
+	switch {
 	case strings.TrimSpace(userID) == "":
 		return invalid("user_id is required")
 	case utf8.RuneCountInString(userID) > MaxUserIDLen:
@@ -59,7 +109,7 @@ func validateCommon(eventID string, movieID int, userID string) error {
 }
 
 func (e RatingSubmitted) Validate() error {
-	if err := validateCommon(e.EventID, e.MovieID, e.UserID); err != nil {
+	if err := validateCommon(e.EventID, e.Title(), e.UserID); err != nil {
 		return err
 	}
 	if e.Score < MinScore || e.Score > MaxScore {
@@ -69,7 +119,7 @@ func (e RatingSubmitted) Validate() error {
 }
 
 func (e CommentAdded) Validate() error {
-	if err := validateCommon(e.EventID, e.MovieID, e.UserID); err != nil {
+	if err := validateCommon(e.EventID, e.Title(), e.UserID); err != nil {
 		return err
 	}
 	if strings.TrimSpace(e.Text) == "" {
@@ -85,7 +135,7 @@ func (e CommentAdded) Validate() error {
 
 // RatingStats is the running aggregate of a movie's ratings.
 type RatingStats struct {
-	MovieID    int
+	Title      Title
 	TotalScore int64
 	VoteCount  int64
 	Version    int64 // bumped on every change; orders read-model writes
@@ -107,7 +157,8 @@ type Comment struct {
 
 // Interactions is what GET /interactions returns.
 type Interactions struct {
-	MovieID        int       `json:"movie_id"`
+	MediaType      string    `json:"media_type"`
+	MovieID        int       `json:"movie_id"` // the TMDB id (of a movie or a series)
 	AverageRating  float64   `json:"average_rating"`
 	TotalVotes     int64     `json:"total_votes"`
 	RecentComments []Comment `json:"recent_comments"`
@@ -128,22 +179,56 @@ type Repository interface {
 	SaveRating(ctx context.Context, e RatingSubmitted) (RatingStats, error)
 	// SaveComment stores the comment; redelivered event ids are ignored.
 	SaveComment(ctx context.Context, e CommentAdded) error
-	GetStats(ctx context.Context, movieID int) (RatingStats, error)
-	RecentComments(ctx context.Context, movieID, limit int) ([]Comment, error)
+	GetStats(ctx context.Context, t Title) (RatingStats, error)
+	RecentComments(ctx context.Context, t Title, limit int) ([]Comment, error)
+	// PurgeUser deletes all ratings, comments, and unpublished events for a user.
+	// It decrements the stats of affected movies and returns their updated stats.
+	PurgeUser(ctx context.Context, userID string) ([]RatingStats, error)
+}
+
+// ModerationStore keeps comment reports and user blocks (PostgreSQL).
+type ModerationStore interface {
+	// ReportComment records that reporterID reported a comment. Reporting
+	// twice is fine; a comment that doesn't exist is ErrNotFound.
+	ReportComment(ctx context.Context, commentID, reporterID string) error
+	// BlockUser makes blockerID hide blockedID's comments. Idempotent.
+	BlockUser(ctx context.Context, blockerID, blockedID string) error
+	UnblockUser(ctx context.Context, blockerID, blockedID string) error
+	// BlockedUsers lists the users blockerID has blocked.
+	BlockedUsers(ctx context.Context, blockerID string) ([]string, error)
+
+	// For the admin: the reported comments, most reported first.
+	ReportedComments(ctx context.Context, limit int) ([]ReportedComment, error)
+	// DeleteComment removes a comment (and, with it, its reports) and says
+	// which title it was on. ErrNotFound if there is no such comment.
+	DeleteComment(ctx context.Context, commentID string) (Title, error)
+	// DismissReports clears a comment's reports and keeps the comment. Idempotent.
+	DismissReports(ctx context.Context, commentID string) error
+}
+
+// ReportedComment is a comment somebody reported.
+type ReportedComment struct {
+	Comment
+	MediaType      string    `json:"media_type"`
+	MovieID        int       `json:"movie_id"`
+	Reports        int       `json:"reports"`
+	LastReportedAt time.Time `json:"last_reported_at"`
 }
 
 // ReadModel is the materialised query view (Redis).
 type ReadModel interface {
 	// Get returns found=false when the movie has no materialised model.
-	Get(ctx context.Context, movieID, limit int) (Interactions, bool, error)
+	Get(ctx context.Context, t Title, limit int) (Interactions, bool, error)
 	// ApplyRating updates the aggregate. applied=false means the model does
 	// not exist yet and must be built with Init.
 	ApplyRating(ctx context.Context, s RatingStats) (applied bool, err error)
 	// AddComment appends a comment. applied=false: model missing, use Init.
-	AddComment(ctx context.Context, movieID int, c Comment) (applied bool, err error)
+	AddComment(ctx context.Context, t Title, c Comment) (applied bool, err error)
 	// Init builds the model from source-of-truth data. It never overwrites a
 	// newer aggregate (by Version) and merges comments idempotently.
 	Init(ctx context.Context, s RatingStats, recent []Comment) error
+	// Delete removes the materialised view, forcing a rebuild on the next read.
+	Delete(ctx context.Context, t Title) error
 }
 
 // --- Transactional outbox ---

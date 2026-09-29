@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./deployments/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -25,7 +25,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
     ports:
-      - "${REDIS_PORT:-6380}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6380}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -44,9 +44,9 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"     # AMQP
-      - "${RABBITMQ_UI_PORT:-15672}:15672"   # Management UI
-      - "${RABBITMQ_METRICS_PORT:-15692}:15692"   # Prometheus metrics
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"     # AMQP
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"   # Management UI
+      - "127.0.0.1:${RABBITMQ_METRICS_PORT:-15692}:15692"   # Prometheus metrics
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     command: >
@@ -83,6 +83,9 @@ services:
       # IMDb ratings via OMDb (free key: https://www.omdbapi.com/apikey.aspx).
       # Unset: movies show TMDB's score only.
       OMDB_API_KEY: ${OMDB_API_KEY:-}
+      # Chat assistant (unset: canned demo replies).
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-20b}
     ports:
       # Localhost only: in production the gateway is the only way in (it is the
       # trust boundary for X-User-Id).
@@ -212,9 +215,16 @@ services:
       AUTH_URL: http://auth:8080
       WATCHPARTY_URL: http://watchparty:8080
       JWT_ISSUER: ${JWT_ISSUER:-movieapp-auth}
+      # Who may use the admin panel (/admin): comma-separated user ids.
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
       # Stricter budget for /api/v1/auth/* (login brute force, signup spam).
       AUTH_RATE_LIMIT_REQUESTS: ${AUTH_RATE_LIMIT_REQUESTS:-10}
       AUTH_RATE_LIMIT_WINDOW: ${AUTH_RATE_LIMIT_WINDOW:-1m}
+      # AI chat: each call costs an LLM request, so it has its own budget and
+      # a longer timeout (tool-calling rounds take seconds).
+      CHAT_RATE_LIMIT_REQUESTS: ${CHAT_RATE_LIMIT_REQUESTS:-10}
+      CHAT_RATE_LIMIT_WINDOW: ${CHAT_RATE_LIMIT_WINDOW:-1m}
+      CHAT_UPSTREAM_TIMEOUT: ${CHAT_UPSTREAM_TIMEOUT:-60s}
       RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-100}
       RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-1m}
       # Browser origins allowed to call this API (comma-separated; "*" = any).

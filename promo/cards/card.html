@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=block" rel="stylesheet" />
+<!--
+  Title cards for the launch video, recorded by build.mjs like the app
+  itself. ?type=intro | title | arch | outro; a title card also takes
+  eyebrow, title (words in *stars* are gold), sub.
+-->
+<style>
+  :root { --bg: #09090b; --gold: #fbbf24; --gold2: #f59e0b; --ink: #fafafa; --mute: #a1a1aa; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--ink);
+    font-family: Outfit, Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { opacity: 0; } body.ready { opacity: 1; }
+  /* Nothing moves until the recorder says go (window.__go), so every card
+     is filmed from its first frame. */
+  body:not(.ready) *, body:not(.ready) .aurora { animation-play-state: paused !important; }
+
+  /* Slow drifting glow + fine grain: depth without noise. */
+  .aurora { position: absolute; inset: -20%; filter: blur(90px); opacity: .55;
+    background:
+      radial-gradient(30% 35% at 30% 40%, rgba(251,191,36,.30), transparent 70%),
+      radial-gradient(28% 32% at 72% 62%, rgba(220,38,38,.20), transparent 70%),
+      radial-gradient(34% 40% at 50% 100%, rgba(126,34,206,.28), transparent 70%);
+    animation: drift 9s ease-in-out infinite alternate; }
+  @keyframes drift { from { transform: translate3d(-3%, -2%, 0) scale(1) } to { transform: translate3d(3%, 2%, 0) scale(1.08) } }
+  .vignette { position: absolute; inset: 0; background: radial-gradient(75% 75% at 50% 50%, transparent 55%, rgba(0,0,0,.65)); }
+  .stage { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+
+  /* Kinetic words: rise out of a blur, one after another. */
+  .w { display: inline-block; opacity: 0; transform: translateY(46px); filter: blur(14px);
+    animation: rise .95s cubic-bezier(.16,.84,.24,1) forwards; }
+  @keyframes rise { to { opacity: 1; transform: none; filter: none } }
+  .gold { background: linear-gradient(100deg, #fde68a, var(--gold) 40%, var(--gold2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .fade { opacity: 0; animation: fade .9s ease-out forwards; }
+  @keyframes fade { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: none } }
+
+  .eyebrow { font-size: 26px; font-weight: 600; letter-spacing: .32em; text-transform: uppercase; color: var(--gold); margin-bottom: 34px; }
+  .headline { font-size: 132px; font-weight: 700; letter-spacing: -.035em; line-height: 1.02; max-width: 1600px; }
+  .sub { margin-top: 40px; font-size: 34px; font-weight: 400; color: var(--mute); letter-spacing: .01em; }
+  .rule { width: 0; height: 2px; margin: 46px auto 0; background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    animation: rule 1.2s .6s cubic-bezier(.2,.8,.2,1) forwards; }
+  @keyframes rule { to { width: 520px } }
+
+  /* Brand: Kino + a suffix that flips Cut -> Show, like the app's switch. */
+  .brand { display: flex; align-items: center; gap: 34px; font-size: 168px; font-weight: 700; letter-spacing: -.04em; }
+  .mark { width: 172px; height: 172px; border-radius: 40px; display: grid; place-items: center;
+    background: linear-gradient(145deg, #fcd34d, #f59e0b); color: #09090b; box-shadow: 0 30px 90px rgba(251,191,36,.35);
+    opacity: 0; transform: scale(.6) rotate(-12deg); animation: pop 1s .15s cubic-bezier(.2,1.4,.3,1) forwards; }
+  .mark svg { width: 96px; height: 96px; }
+  @keyframes pop { to { opacity: 1; transform: none } }
+  .flip { display: inline-grid; perspective: 800px; }
+  .flip > span { grid-area: 1 / 1; justify-self: start; backface-visibility: hidden; transform-origin: 50% 60%; }
+  .flip .gold { display: inline-block; padding-right: .04em; }
+  .flip .a { animation: outX .7s 1.9s cubic-bezier(.6,0,.4,1) forwards; }
+  .flip .b { transform: rotateX(-90deg); opacity: 0; animation: inX .7s 2.25s cubic-bezier(.2,.8,.2,1) forwards; }
+  @keyframes outX { to { transform: rotateX(90deg); opacity: 0 } }
+  @keyframes inX { to { transform: none; opacity: 1 } }
+  .swap { font-size: 30px; letter-spacing: .3em; color: var(--mute); text-transform: uppercase; margin-top: 44px; }
+
+  /* Architecture diagram. */
+  .arch { position: absolute; inset: 0; }
+  .arch h1 { position: absolute; top: 88px; width: 100%; text-align: center; font-size: 84px; font-weight: 700; letter-spacing: -.03em; }
+  .arch .kicker { position: absolute; top: 58px; width: 100%; text-align: center; }
+  .node { position: absolute; padding: 20px 28px; border-radius: 22px; border: 1px solid rgba(255,255,255,.12);
+    background: rgba(24,24,27,.72); backdrop-filter: blur(18px); box-shadow: 0 20px 60px rgba(0,0,0,.45);
+    opacity: 0; transform: translateY(24px) scale(.96); animation: node .8s cubic-bezier(.16,.84,.24,1) forwards; }
+  @keyframes node { to { opacity: 1; transform: none } }
+  .node b { display: block; font-size: 30px; font-weight: 600; }
+  .node small { display: block; margin-top: 6px; font-size: 20px; color: var(--mute); }
+  .node.hot { border-color: rgba(251,191,36,.55); box-shadow: 0 0 0 1px rgba(251,191,36,.25), 0 20px 70px rgba(251,191,36,.18); }
+  .node .tag { display: inline-block; margin-top: 10px; padding: 3px 10px; border-radius: 999px; font-size: 16px; font-weight: 600;
+    letter-spacing: .06em; color: #09090b; background: var(--gold); }
+  svg.links { position: absolute; inset: 0; overflow: visible; }
+  svg.links path { fill: none; stroke: rgba(251,191,36,.55); stroke-width: 2.5; stroke-dasharray: 900; stroke-dashoffset: 900;
+    animation: draw 1s ease-out forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0 } }
+  .pulse { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: var(--gold);
+    box-shadow: 0 0 24px 8px rgba(251,191,36,.65); opacity: 0; offset-rotate: 0deg; }
+
+  .stack { margin-top: 40px; display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; max-width: 1400px; }
+  .chip { padding: 12px 24px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04);
+    font-size: 26px; font-weight: 500; color: #e4e4e7; }
+  .url { margin-top: 54px; font-size: 30px; color: var(--mute); letter-spacing: .02em; }
+  .arch .node { padding: 16px 24px; }
+  .arch .node b { font-size: 28px; }
+  .arch .node small { font-size: 19px; }
+  .arch .node .tag { margin-top: 8px; font-size: 14px; }
+  .ops { position: absolute; left: 0; right: 0; top: 960px; display: flex; gap: 14px; justify-content: center; }
+  .ops .chip { font-size: 22px; padding: 10px 20px; }
+  .stats { margin-top: 64px; display: grid; grid-template-columns: repeat(4, 340px); gap: 22px; }
+  .stat { padding: 30px 20px; border-radius: 26px; border: 1px solid rgba(255,255,255,.12); background: rgba(24,24,27,.6); }
+  .stat b { display: block; font-size: 76px; font-weight: 700; letter-spacing: -.03em; color: var(--gold); font-variant-numeric: tabular-nums; }
+  .stat small { display: block; margin-top: 6px; font-size: 22px; color: var(--mute); }
+</style>
+</head>
+<body>
+<div class="aurora"></div>
+<div class="vignette"></div>
+<div id="root"></div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const onGo = [];
+  const type = q.get("type") || "title";
+  const root = document.getElementById("root");
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  const CLAPPER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z"/><path d="m6.2 5.3 3.1 3.9"/><path d="m12.4 3.4 3.1 4"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+
+  // "One Tap. *Two* Universes." -> staggered words; *starred* ones in gold.
+  function words(text, delay = 0.12, step = 0.11) {
+    return text.split(" ").map((w, i) => {
+      const gold = /^\*.*\*[.,!?]?$/.test(w);
+      const clean = esc(w.replace(/\*/g, ""));
+      return `<span class="w ${gold ? "gold" : ""}" style="animation-delay:${(delay + i * step).toFixed(2)}s">${clean}</span>`;
+    }).join(" ");
+  }
+
+  if (type === "intro") {
+    root.innerHTML = `<div class="stage">
+      <div class="brand"><div class="mark">${CLAPPER}</div>
+        <div><span class="w" style="animation-delay:.55s">Kino</span><span class="flip"><span class="a"><span class="w gold" style="animation-delay:.75s">Cut</span></span><span class="b"><span class="gold">Show</span></span></span></div>
+      </div>
+      <div class="sub fade" style="animation-delay:1.35s; font-size:40px; color:#e4e4e7">Cinema, reimagined.</div>
+      <div class="swap fade" style="animation-delay:2.7s">Movies ⇄ Series</div>
+    </div>`;
+  } else if (type === "outro") {
+    root.innerHTML = `<div class="stage">
+      <div class="brand" style="font-size:132px"><div class="mark" style="width:140px;height:140px;border-radius:32px">${CLAPPER}</div>
+        <div><span class="w" style="animation-delay:.3s">Kino</span><span class="w gold" style="animation-delay:.42s">Cut</span><span class="w" style="animation-delay:.6s; color:#52525b; padding:0 .12em">⇄</span><span class="w" style="animation-delay:.72s">Kino</span><span class="w gold" style="animation-delay:.84s">Show</span></div>
+      </div>
+      <div class="stack">${["Next.js 16", "Go microservices", "Redis", "PostgreSQL", "RabbitMQ", "WebSockets", "Groq AI"]
+        .map((t, i) => `<span class="chip fade" style="animation-delay:${(1.1 + i * 0.09).toFixed(2)}s">${t}</span>`).join("")}</div>
+      <div class="url fade" style="animation-delay:1.9s">github.com/furkanpatat/MovieApp</div>
+    </div>`;
+  } else if (type === "arch") {
+    // Boxes (x, y are the left/top in px), then the links between them.
+    const N = [
+      ["web", 60, 505, "Next.js 16", "App Router · TR / EN", 0.4],
+      ["gw", 430, 505, "API Gateway · Go", "JWT verify · rate limits · WS proxy", 0.7, "TRUST BOUNDARY"],
+      ["auth", 900, 245, "Auth · Go", "bcrypt · JWT · HttpOnly cookie", 1.0],
+      ["cat", 900, 420, "Catalog · Go", "TMDB + OMDb · singleflight · AI tools", 1.12],
+      ["int", 900, 595, "Interaction · Go", "CQRS · transactional outbox", 1.24],
+      ["wp", 900, 770, "Watch Party · Go", "WebSocket hub · synced rooms", 1.36],
+      ["redis", 1440, 245, "Redis", "L1 cache · read model", 1.8, "HOT PATH"],
+      ["pg", 1440, 420, "PostgreSQL", "L2 · source of truth · outbox", 1.95],
+      ["mq", 1440, 595, "RabbitMQ", "events → projections", 2.1],
+      ["ai", 1440, 770, "Groq LLM", "tool-grounded picks", 2.25],
+    ];
+    const html = N.map(([id, x, y, b, s, d, tag]) =>
+      `<div class="node ${tag ? "hot" : ""}" id="${id}" style="left:${x}px;top:${y}px;animation-delay:${d}s"><b>${b}</b><small>${s}</small>${tag ? `<span class="tag">${tag}</span>` : ""}</div>`,
+    ).join("");
+    const ops = ["Docker Compose", "GitHub Actions CI", "Prometheus + Grafana", "go test -race"];
+    root.innerHTML = `<div class="arch">
+      <div class="eyebrow kicker fade">Under the hood · 5 Go microservices</div>
+      <h1>${words("Built like a *real* *platform*.", 0.1, 0.09)}</h1>
+      <svg class="links" id="links"></svg>${html}
+      <div class="ops">${ops.map((t, i) => `<span class="chip fade" style="animation-delay:${(2.7 + i * 0.1).toFixed(2)}s">${t}</span>`).join("")}</div>
+      <div class="pulse" id="pulse"></div><div class="pulse" id="pulse2"></div></div>`;
+    requestAnimationFrame(() => {
+      const r = (id) => document.getElementById(id).getBoundingClientRect();
+      const right = (id) => ({ x: r(id).right, y: r(id).top + r(id).height / 2 });
+      const left = (id) => ({ x: r(id).left, y: r(id).top + r(id).height / 2 });
+      const curve = (a, b) => `M${a.x},${a.y} C${(a.x + b.x) / 2},${a.y} ${(a.x + b.x) / 2},${b.y} ${b.x},${b.y}`;
+      // RabbitMQ feeds the Redis read model: an arc on the right-hand side.
+      const arc = (a, b) => `M${a.x},${a.y} C${a.x + 150},${a.y} ${b.x + 150},${b.y} ${b.x},${b.y}`;
+      const L = [["web", "gw", 0.6], ["gw", "auth", 0.9], ["gw", "cat", 1.0], ["gw", "int", 1.1], ["gw", "wp", 1.2],
+        ["auth", "pg", 1.9], ["cat", "redis", 1.8], ["cat", "pg", 1.95], ["cat", "ai", 2.2], ["int", "pg", 2.0], ["int", "mq", 2.1]];
+      document.getElementById("links").innerHTML =
+        L.map(([a, b, d]) => `<path d="${curve(right(a), left(b))}" style="animation-delay:${d}s"/>`).join("") +
+        `<path d="${arc(right("mq"), right("redis"))}" style="animation-delay:2.4s"/>`;
+      // A read: browser -> gateway -> catalog -> Redis. A write: interaction -> RabbitMQ -> Redis read model.
+      const trip = (el, d, delay) => {
+        el.style.offsetPath = `path("${d}")`;
+        onGo.push(() => el.animate([{ offsetDistance: "0%", opacity: 0 }, { opacity: 1, offset: 0.08 }, { offsetDistance: "100%", opacity: 1 }],
+          { duration: 1900, delay, iterations: 2, easing: "cubic-bezier(.45,0,.2,1)", fill: "forwards" }));
+      };
+      const P = (a, b) => curve(a, b).replace("M", "L");
+      trip(document.getElementById("pulse"), `${curve(right("web"), left("gw"))} ${P(right("gw"), left("cat"))} ${P(right("cat"), left("redis"))}`, 3000);
+      trip(document.getElementById("pulse2"), `${curve(right("int"), left("mq"))} ${arc(right("mq"), right("redis")).replace("M", "L")}`, 3400);
+    });
+  } else if (type === "load") {
+    // Numbers from tests/load/results (k6, 5,000 virtual users); count up on go.
+    const S = [
+      [1277282, "requests in 6 minutes", (v) => (v / 1e6).toFixed(2) + "M"],
+      [3667, "requests / second", (v) => Math.round(v).toLocaleString("en-US")],
+      [2.8, "p95 latency", (v) => v.toFixed(1) + " ms"],
+      [0, "errors · 0 lost writes", () => "0"],
+    ];
+    root.innerHTML = `<div class="stage">
+      <div class="eyebrow fade">k6 load test · 5,000 concurrent users</div>
+      <div class="headline" style="font-size:116px">${words("*5,000* users. *Zero* errors.")}</div>
+      <div class="stats">${S.map(([, label], i) =>
+        `<div class="stat fade" style="animation-delay:${(0.9 + i * 0.15).toFixed(2)}s"><b id="s${i}">0</b><small>${label}</small></div>`).join("")}</div>
+      <div class="sub fade" style="animation-delay:1.9s; font-size:28px">192,266 ratings &amp; comments → outbox → RabbitMQ → stored. Every one.</div>
+    </div>`;
+    onGo.push(() => {
+      const t0 = performance.now() + 900;
+      const tick = (now) => {
+        const k = Math.min(1, Math.max(0, (now - t0) / 1600));
+        const e = 1 - Math.pow(1 - k, 3);
+        S.forEach(([v, , f], i) => { document.getElementById("s" + i).textContent = f(v * e); });
+        if (k < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  } else {
+    root.innerHTML = `<div class="stage">
+      ${q.get("eyebrow") ? `<div class="eyebrow fade">${esc(q.get("eyebrow"))}</div>` : ""}
+      <div class="headline">${words(q.get("title") || "")}</div>
+      ${q.get("sub") ? `<div class="sub fade" style="animation-delay:.85s">${esc(q.get("sub"))}</div>` : ""}
+      <div class="rule"></div>
+    </div>`;
+  }
+  // The recorder waits for the font, starts filming, then calls __go();
+  // opened by hand (no ?rec), a card plays by itself.
+  window.__go = () => { document.body.classList.add("ready"); onGo.forEach((f) => f()); };
+  if (!q.has("rec")) document.fonts.ready.then(() => setTimeout(window.__go, 200));
+</script>
+</body>
+</html>

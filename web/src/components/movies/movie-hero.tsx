@@ -9,6 +9,9 @@ import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RatingBadge } from "@/components/movies/rating-badge";
 import { backdropUrl } from "@/lib/tmdb-image";
+import { TVBadge } from "@/components/movies/movie-card";
+import { useT } from "@/i18n";
+import { isTV, titleHref } from "@/lib/media";
 import type { Movie } from "@/types/movie";
 
 const ROTATE_MS = 7000;
@@ -25,6 +28,7 @@ const ROTATE_MS = 7000;
  * current slide, so picking a dot also restarts the countdown.
  */
 export const MovieHero = memo(function MovieHero({ movies }: { movies: Movie[] }) {
+  const { t } = useT();
   const [index, setIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
   const [tabHidden, setTabHidden] = useState(false);
@@ -49,7 +53,7 @@ export const MovieHero = memo(function MovieHero({ movies }: { movies: Movie[] }
     <section
       className="relative h-[56vh] min-h-[420px] w-full overflow-hidden sm:h-[64vh]"
       aria-roledescription="carousel"
-      aria-label="Trending now"
+      aria-label={t("home.heroLabel")}
       onPointerEnter={(e) => e.pointerType === "mouse" && setHovered(true)}
       onPointerLeave={(e) => e.pointerType === "mouse" && setHovered(false)}
     >
@@ -64,7 +68,7 @@ export const MovieHero = memo(function MovieHero({ movies }: { movies: Movie[] }
           transition={{ duration: 1, ease: "easeInOut" }}
           className="absolute inset-0"
           aria-roledescription="slide"
-          aria-label={`${(index % count) + 1} of ${count}: ${movie.title}`}
+          aria-label={t("home.heroSlide", { i: (index % count) + 1, n: count, title: movie.title })}
         >
           <HeroSlide movie={movie} priority={index === 0} />
         </motion.div>
@@ -78,7 +82,7 @@ export const MovieHero = memo(function MovieHero({ movies }: { movies: Movie[] }
               <button
                 key={m.id}
                 type="button"
-                aria-label={`Show ${m.title}`}
+                aria-label={t("home.showSlide", { title: m.title })}
                 aria-current={active}
                 onClick={() => setIndex(i)}
                 className="group flex h-6 items-center px-1 outline-none"
@@ -98,6 +102,7 @@ export const MovieHero = memo(function MovieHero({ movies }: { movies: Movie[] }
 });
 
 function HeroSlide({ movie, priority }: { movie: Movie; priority: boolean }) {
+  const { t } = useT();
   const backdrop = backdropUrl(movie.backdrop_path, "original");
   const year = movie.release_date?.slice(0, 4);
 
@@ -122,6 +127,7 @@ function HeroSlide({ movie, priority }: { movie: Movie; priority: boolean }) {
           transition={{ duration: 0.6, delay: 0.3, ease: "easeOut" }}
           className="max-w-xl"
         >
+          {isTV(movie) && <TVBadge className="mb-3" />}
           <h1 className="text-3xl font-bold tracking-tight text-balance sm:text-5xl">{movie.title}</h1>
 
           <div className="mt-3 flex items-center gap-3 text-sm text-muted-foreground">
@@ -135,9 +141,9 @@ function HeroSlide({ movie, priority }: { movie: Movie; priority: boolean }) {
 
           <div className="mt-6 flex gap-3">
             <Button asChild size="lg" className="font-semibold">
-              <Link href={`/movies/${movie.id}`}>
+              <Link href={titleHref(movie)}>
                 <Info className="size-4" />
-                More info
+                {t("home.moreInfo")}
               </Link>
             </Button>
           </div>

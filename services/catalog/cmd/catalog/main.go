@@ -18,6 +18,8 @@ import (
 	"github.com/furkanpatat/movieapp/pkg/logger"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/config"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/domain"
+	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/groq"
+	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/mockchat"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/omdb"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/postgres"
 	"github.com/furkanpatat/movieapp/services/catalog/internal/repository/rediscache"
@@ -81,6 +83,8 @@ func run() error {
 	svc := service.NewCatalog(tm, rediscache.New(rdb, cfg.Cache.StaleTTL), pgRepo, cfg.Cache.TTL, log,
 		service.WithPeople(pgRepo),
 		service.WithIMDb(ratings, pgRepo, cfg.OMDb.RatingTTL),
+		service.WithDiscovery(tm),
+		service.WithTV(tm, pgRepo),
 	)
 
 	var wg sync.WaitGroup
@@ -100,9 +104,24 @@ func run() error {
 		}()
 	}
 
+	// The chat assistant: Groq when configured, canned demo replies otherwise.
+	assistant := service.NewAssistant(mockchat.Model{}, svc).AsDemo()
+	if cfg.Groq.APIKey != "" {
+		assistant = service.NewAssistant(groq.New(groq.Config{
+			APIKey: cfg.Groq.APIKey, Model: cfg.Groq.Model, BaseURL: cfg.Groq.BaseURL,
+			MaxTokens: cfg.Groq.MaxTokens, Logger: log,
+		}, svc), svc)
+		log.Info("chat assistant: Groq", "model", cfg.Groq.Model)
+	} else {
+		log.Warn("GROQ_API_KEY not set: chat assistant runs in demo mode")
+	}
+
 	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           transport.NewHandler(svc, service.NewLibrary(pgRepo, svc), func() bool { return tm.BreakerState() != gobreaker.StateOpen }, log),
+		Addr: cfg.HTTPAddr,
+		Handler: transport.NewHandler(svc, service.NewLibrary(pgRepo, svc).WithWatched(pgRepo),
+			func() bool { return tm.BreakerState() != gobreaker.StateOpen }, log,
+			transport.WithAssistant(assistant),
+		),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	errCh := make(chan error, 1)

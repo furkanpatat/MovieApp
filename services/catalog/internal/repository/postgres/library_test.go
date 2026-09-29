@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,7 +73,7 @@ func TestWatchlist(t *testing.T) {
 	m1, m2 := f.movie(t, "First"), f.movie(t, "Second")
 	alice, bob := f.user(t), f.user(t)
 
-	first, err := f.repo.AddToWatchlist(ctx, alice, m1)
+	first, err := f.repo.AddToWatchlist(ctx, alice, domain.MovieRef(m1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,11 +81,11 @@ func TestWatchlist(t *testing.T) {
 		t.Fatalf("item = %+v", first)
 	}
 	time.Sleep(5 * time.Millisecond)
-	if _, err := f.repo.AddToWatchlist(ctx, alice, m2); err != nil {
+	if _, err := f.repo.AddToWatchlist(ctx, alice, domain.MovieRef(m2)); err != nil {
 		t.Fatal(err)
 	}
 	// Re-adding is a no-op that keeps the original time.
-	again, err := f.repo.AddToWatchlist(ctx, alice, m1)
+	again, err := f.repo.AddToWatchlist(ctx, alice, domain.MovieRef(m1))
 	if err != nil || !again.AddedAt.Equal(first.AddedAt) {
 		t.Fatalf("re-add: %v, added_at %v -> %v", err, first.AddedAt, again.AddedAt)
 	}
@@ -101,7 +102,7 @@ func TestWatchlist(t *testing.T) {
 	}
 
 	for range 2 {
-		if err := f.repo.RemoveFromWatchlist(ctx, alice, m1); err != nil {
+		if err := f.repo.RemoveFromWatchlist(ctx, alice, domain.MovieRef(m1)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -116,12 +117,12 @@ func TestUpsertUserRating(t *testing.T) {
 	m := f.movie(t, "Rated")
 	alice := f.user(t)
 
-	r1, err := f.repo.UpsertUserRating(ctx, alice, m, 6)
+	r1, err := f.repo.UpsertUserRating(ctx, alice, domain.MovieRef(m), 6)
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(5 * time.Millisecond)
-	r2, err := f.repo.UpsertUserRating(ctx, alice, m, 9)
+	r2, err := f.repo.UpsertUserRating(ctx, alice, domain.MovieRef(m), 9)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +135,7 @@ func TestUpsertUserRating(t *testing.T) {
 		t.Fatalf("ratings = %+v, %v (want one row, rating 9)", all, err)
 	}
 
-	if _, err := f.repo.UpsertUserRating(ctx, alice, m, 11); err == nil {
+	if _, err := f.repo.UpsertUserRating(ctx, alice, domain.MovieRef(m), 11); err == nil {
 		t.Fatal("rating 11 accepted; the CHECK constraint should reject it")
 	}
 }
@@ -147,21 +148,21 @@ func TestLibraryForeignKeys(t *testing.T) {
 	unstored := 900_000_000 + rand.IntN(99_999_999)
 	nobody := "00000000-0000-4000-8000-000000000000"
 
-	if _, err := f.repo.AddToWatchlist(ctx, alice, unstored); !errors.Is(err, domain.ErrMovieNotStored) {
+	if _, err := f.repo.AddToWatchlist(ctx, alice, domain.MovieRef(unstored)); !errors.Is(err, domain.ErrMovieNotStored) {
 		t.Errorf("watchlist, unstored movie: %v", err)
 	}
-	if _, err := f.repo.UpsertUserRating(ctx, alice, unstored, 5); !errors.Is(err, domain.ErrMovieNotStored) {
+	if _, err := f.repo.UpsertUserRating(ctx, alice, domain.MovieRef(unstored), 5); !errors.Is(err, domain.ErrMovieNotStored) {
 		t.Errorf("rating, unstored movie: %v", err)
 	}
-	if _, err := f.repo.AddToWatchlist(ctx, nobody, stored); !errors.Is(err, domain.ErrUnknownUser) {
+	if _, err := f.repo.AddToWatchlist(ctx, nobody, domain.MovieRef(stored)); !errors.Is(err, domain.ErrUnknownUser) {
 		t.Errorf("watchlist, unknown user: %v", err)
 	}
-	if _, err := f.repo.UpsertUserRating(ctx, nobody, stored, 5); !errors.Is(err, domain.ErrUnknownUser) {
+	if _, err := f.repo.UpsertUserRating(ctx, nobody, domain.MovieRef(stored), 5); !errors.Is(err, domain.ErrUnknownUser) {
 		t.Errorf("rating, unknown user: %v", err)
 	}
 
 	// Deleting the account deletes its library.
-	if _, err := f.repo.AddToWatchlist(ctx, alice, stored); err != nil {
+	if _, err := f.repo.AddToWatchlist(ctx, alice, domain.MovieRef(stored)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `DELETE FROM auth.users WHERE id = $1`, alice); err != nil {
@@ -171,5 +172,108 @@ func TestLibraryForeignKeys(t *testing.T) {
 	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM library.watchlists WHERE user_id = $1`, alice).Scan(&n)
 	if n != 0 {
 		t.Fatalf("%d watchlist rows survived account deletion", n)
+	}
+}
+
+// A series and a movie with the same TMDB id are different library entries,
+// each rendered from its own table.
+func TestSeriesInTheLibrary(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	id := f.movie(t, "The Movie")
+	if err := f.repo.UpsertTV(ctx, domain.Movie{ID: id, MediaType: domain.MediaTV, Title: "The Series", Overview: "o", ReleaseDate: "2011-04-17"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = f.pool.Exec(context.Background(), `DELETE FROM tv_shows WHERE id = $1`, id) })
+	alice := f.user(t)
+	series := domain.TitleRef{MediaType: domain.MediaTV, ID: id}
+
+	for _, ref := range []domain.TitleRef{series, domain.MovieRef(id)} {
+		if _, err := f.repo.AddToWatchlist(ctx, alice, ref); err != nil {
+			t.Fatalf("add %+v: %v", ref, err)
+		}
+	}
+	list, err := f.repo.GetUserWatchlist(ctx, alice)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("list %+v %v", list, err)
+	}
+	byType := map[string]domain.Movie{}
+	for _, it := range list {
+		byType[it.Movie.MediaType] = it.Movie
+	}
+	if byType["tv"].Title != "The Series" || byType["tv"].ReleaseDate != "2011-04-17" || byType["movie"].Title != "The Movie" {
+		t.Fatalf("rendered %+v", byType)
+	}
+
+	r, err := f.repo.UpsertUserRating(ctx, alice, series, 9)
+	if err != nil || r.Movie.MediaType != domain.MediaTV || r.Movie.Title != "The Series" {
+		t.Fatalf("rate series %+v %v", r, err)
+	}
+	if ratings, _ := f.repo.GetUserRatings(ctx, alice); len(ratings) != 1 || ratings[0].Movie.MediaType != domain.MediaTV {
+		t.Fatalf("ratings %+v", ratings)
+	}
+
+	// Removing the series leaves the movie.
+	if err := f.repo.RemoveFromWatchlist(ctx, alice, series); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ = f.repo.GetUserWatchlist(ctx, alice); len(list) != 1 || list[0].Movie.MediaType != domain.MediaMovie {
+		t.Fatalf("after removing the series %+v", list)
+	}
+
+	// A series with no tv_shows row is "not stored" (the service fetches it).
+	unstored := domain.TitleRef{MediaType: domain.MediaTV, ID: id + 1}
+	if _, err := f.repo.AddToWatchlist(ctx, alice, unstored); !errors.Is(err, domain.ErrMovieNotStored) {
+		t.Fatalf("unstored series: %v", err)
+	}
+}
+
+func TestWatched(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	id := f.movie(t, "Watched Movie")
+	if err := f.repo.UpsertTV(ctx, domain.Movie{ID: id, MediaType: domain.MediaTV, Title: "Watched Series", Overview: "o"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = f.pool.Exec(context.Background(), `DELETE FROM tv_shows WHERE id = $1`, id) })
+	alice := f.user(t)
+	series := domain.TitleRef{MediaType: domain.MediaTV, ID: id}
+
+	first, err := f.repo.MarkWatched(ctx, alice, domain.MovieRef(id))
+	if err != nil || first.Movie.Title != "Watched Movie" || first.Movie.MediaType != domain.MediaMovie {
+		t.Fatalf("mark movie %+v %v", first, err)
+	}
+	if _, err := f.repo.MarkWatched(ctx, alice, series); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := f.repo.MarkWatched(ctx, alice, domain.MovieRef(id))
+	if !again.WatchedAt.Equal(first.WatchedAt) {
+		t.Fatalf("re-marking moved watched_at: %v -> %v", first.WatchedAt, again.WatchedAt)
+	}
+
+	mine, err := f.repo.GetUserWatched(ctx, alice)
+	if err != nil || len(mine) != 2 || mine[0].Movie.Title != "Watched Series" {
+		t.Fatalf("mine %+v %v", mine, err)
+	}
+
+	// The public view, by name, any case.
+	var name string
+	_ = f.pool.QueryRow(ctx, `SELECT username FROM auth.users WHERE id = $1`, alice).Scan(&name)
+	pub, err := f.repo.GetWatchedByUsername(ctx, strings.ToUpper(name), 1)
+	if err != nil || pub.Username != name || len(pub.Items) != 1 {
+		t.Fatalf("public %+v %v", pub, err)
+	}
+	if _, err := f.repo.GetWatchedByUsername(ctx, "no_such_user_x", 10); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("unknown user: %v", err)
+	}
+
+	if err := f.repo.UnmarkWatched(ctx, alice, series); err != nil {
+		t.Fatal(err)
+	}
+	if mine, _ = f.repo.GetUserWatched(ctx, alice); len(mine) != 1 || mine[0].Movie.MediaType != domain.MediaMovie {
+		t.Fatalf("after unmarking the series %+v", mine)
+	}
+	if _, err := f.repo.MarkWatched(ctx, alice, domain.TitleRef{MediaType: domain.MediaTV, ID: id + 1}); !errors.Is(err, domain.ErrMovieNotStored) {
+		t.Fatalf("unstored series: %v", err)
 	}
 }

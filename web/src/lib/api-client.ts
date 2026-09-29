@@ -1,5 +1,7 @@
 import { toast } from "sonner";
 
+import { currentLocale, translate } from "@/i18n";
+
 import { env } from "@/lib/env";
 import { useAuthStore } from "@/store/auth-store";
 
@@ -52,7 +54,7 @@ export async function apiFetch<T>(
       credentials: "include",
     });
   } catch {
-    throw new ApiError("Can't reach the server. Check your connection and try again.", 0);
+    throw new ApiError(translate(currentLocale(), "common.offline"), 0);
   }
 
   // 202 Accepted (our CQRS write path) and 204 have no body to parse.
@@ -62,7 +64,7 @@ export async function apiFetch<T>(
   if (!res.ok) {
     if (res.status === 401 && auth && useAuthStore.getState().username !== null) {
       useAuthStore.getState().clearSession();
-      toast("Your session has ended. Please sign in again.", { id: "session-ended" });
+      toast(translate(currentLocale(), "common.sessionEnded"), { id: "session-ended" });
     }
     const message =
       (data as ApiErrorBody | undefined)?.error ?? `Request failed (${res.status})`;

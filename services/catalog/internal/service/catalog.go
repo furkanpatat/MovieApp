@@ -26,6 +26,9 @@ type Catalog struct {
 	ratings  domain.RatingProvider
 	imdb     domain.IMDbStore
 	imdbTTL  time.Duration
+	discover domain.Discoverer // optional: DiscoverMovies
+	tv       domain.TVProvider // optional: TV series
+	tvStore  domain.TVStore    // L2 cache for TV series (optional)
 	ttl      time.Duration
 	log      *slog.Logger
 	group    singleflight.Group
@@ -42,6 +45,17 @@ func WithPeople(store domain.PersonStore) Option { return func(s *Catalog) { s.p
 func WithIMDb(provider domain.RatingProvider, store domain.IMDbStore, ttl time.Duration) Option {
 	return func(s *Catalog) { s.ratings, s.imdb, s.imdbTTL = provider, store, ttl }
 }
+
+// WithDiscovery enables DiscoverMovies (browse by genre).
+func WithDiscovery(d domain.Discoverer) Option { return func(s *Catalog) { s.discover = d } }
+
+// WithTV enables TV series, stored in an L2 cache (nil: Redis only) like movies.
+func WithTV(p domain.TVProvider, store domain.TVStore) Option {
+	return func(s *Catalog) { s.tv, s.tvStore = p, store }
+}
+
+// errNotConfigured: an optional feature the service was built without.
+var errNotConfigured = fmt.Errorf("%w: not configured", domain.ErrUnavailable)
 
 func NewCatalog(p domain.MovieProvider, c domain.Cache, s domain.MovieStore, ttl time.Duration, log *slog.Logger, opts ...Option) *Catalog {
 	if log == nil {
@@ -71,19 +85,119 @@ func (s *Catalog) GetPopularMovies(ctx context.Context, page int) (domain.MovieP
 	return p, nil
 }
 
+// maxGenreID bounds the genre filter; TMDB's ids are far smaller.
+const maxGenreID = 1_000_000
+
+func validDiscover(genreID, page int) error {
+	switch {
+	case genreID < 0 || genreID > maxGenreID:
+		return fmt.Errorf("%w: genre must be a TMDB genre id", domain.ErrInvalidInput)
+	case page < 1 || page > maxPage:
+		return fmt.Errorf("%w: page must be 1..%d", domain.ErrInvalidInput, maxPage)
+	}
+	return nil
+}
+
+// DiscoverMovies is a page of popular movies, optionally of one genre
+// (0 = any). Pages are cached like popular ones; the client varies the page
+// for a fresh feed.
+func (s *Catalog) DiscoverMovies(ctx context.Context, genreID, page int) (domain.MoviePage, error) {
+	if s.discover == nil {
+		return domain.MoviePage{}, errNotConfigured
+	}
+	if err := validDiscover(genreID, page); err != nil {
+		return domain.MoviePage{}, err
+	}
+	p, err := cacheAside(ctx, s, discoverKey(domain.MediaMovie, genreID, page), func(ctx context.Context) (domain.MoviePage, error) {
+		return s.discover.DiscoverMovies(ctx, domain.DiscoverFilter{GenreID: genreID, Page: page})
+	})
+	if err != nil {
+		return p, err
+	}
+	p.Results = s.withIMDbRatings(ctx, p.Results)
+	return p, nil
+}
+
+// DiscoverTV is DiscoverMovies for series; genreID is a TMDB TV genre id.
+func (s *Catalog) DiscoverTV(ctx context.Context, genreID, page int) (domain.MoviePage, error) {
+	if s.tv == nil {
+		return domain.MoviePage{}, errNotConfigured
+	}
+	if err := validDiscover(genreID, page); err != nil {
+		return domain.MoviePage{}, err
+	}
+	return cacheAside(ctx, s, discoverKey(domain.MediaTV, genreID, page), func(ctx context.Context) (domain.MoviePage, error) {
+		return s.tv.DiscoverTV(ctx, domain.DiscoverFilter{GenreID: genreID, Page: page})
+	})
+}
+
+// SearchTV searches series by name, validated and cached like SearchMovies.
+func (s *Catalog) SearchTV(ctx context.Context, query string, page int) (domain.MoviePage, error) {
+	if s.tv == nil {
+		return domain.MoviePage{}, errNotConfigured
+	}
+	q, err := validSearch(query, page)
+	if err != nil {
+		return domain.MoviePage{}, err
+	}
+	return cacheAside(ctx, s, searchTVKey(q, page), func(ctx context.Context) (domain.MoviePage, error) {
+		return s.tv.SearchTV(ctx, q, page)
+	})
+}
+
+// GetPopularTV is a page of popular TV series (MediaType "tv").
+func (s *Catalog) GetPopularTV(ctx context.Context, page int) (domain.MoviePage, error) {
+	switch {
+	case s.tv == nil:
+		return domain.MoviePage{}, errNotConfigured
+	case page < 1 || page > maxPage:
+		return domain.MoviePage{}, fmt.Errorf("%w: page must be 1..%d", domain.ErrInvalidInput, maxPage)
+	}
+	// No IMDb ratings on lists: the stored ones are looked up by movie id.
+	return cacheAside(ctx, s, popularTVKey(page), func(ctx context.Context) (domain.MoviePage, error) {
+		return s.tv.GetPopularTV(ctx, page)
+	})
+}
+
+// GetTVDetails returns a TV series, cached exactly like movie details:
+// Redis (L1), then Postgres (L2), then TMDB, with its IMDb rating.
+func (s *Catalog) GetTVDetails(ctx context.Context, id int) (domain.Movie, error) {
+	switch {
+	case s.tv == nil:
+		return domain.Movie{}, errNotConfigured
+	case id < 1:
+		return domain.Movie{}, fmt.Errorf("%w: id must be positive", domain.ErrInvalidInput)
+	}
+	var l2 *tier[domain.Movie]
+	if s.tvStore != nil {
+		l2 = &tier[domain.Movie]{
+			get: func(ctx context.Context) (domain.Movie, time.Time, error) {
+				m, at, err := s.tvStore.GetTV(ctx, id)
+				if err == nil {
+					s.attachIMDb(ctx, &m)
+				}
+				return m, at, err
+			},
+			put: s.tvStore.UpsertTV,
+		}
+	}
+	return layered(ctx, s, tvKey(id), l2, func(ctx context.Context) (domain.Movie, error) {
+		m, err := s.tv.GetTVDetails(ctx, id)
+		if err == nil {
+			s.attachIMDb(ctx, &m)
+		}
+		return m, err
+	})
+}
+
 // maxQueryLen bounds search input (runes); TMDB titles are far shorter.
 const maxQueryLen = 100
 
 // SearchMovies searches TMDB by title. Results are cached like popular pages.
 func (s *Catalog) SearchMovies(ctx context.Context, query string, page int) (domain.MoviePage, error) {
-	q := strings.Join(strings.Fields(query), " ") // trim and collapse whitespace
-	switch {
-	case q == "":
-		return domain.MoviePage{}, fmt.Errorf("%w: query is required", domain.ErrInvalidInput)
-	case utf8.RuneCountInString(q) > maxQueryLen:
-		return domain.MoviePage{}, fmt.Errorf("%w: query must be at most %d characters", domain.ErrInvalidInput, maxQueryLen)
-	case page < 1 || page > maxPage:
-		return domain.MoviePage{}, fmt.Errorf("%w: page must be 1..%d", domain.ErrInvalidInput, maxPage)
+	q, err := validSearch(query, page)
+	if err != nil {
+		return domain.MoviePage{}, err
 	}
 	p, err := cacheAside(ctx, s, searchKey(q, page), func(ctx context.Context) (domain.MoviePage, error) {
 		return s.provider.SearchMovies(ctx, q, page)
@@ -282,6 +396,25 @@ func (s *Catalog) withIMDbRatings(ctx context.Context, movies []domain.Movie) []
 	return out
 }
 
+// EnsureTitleStored is EnsureStored for a movie or a series: the title gets
+// its row (movies or tv_shows), which the user library references.
+func (s *Catalog) EnsureTitleStored(ctx context.Context, ref domain.TitleRef) error {
+	if ref.MediaType != domain.MediaTV {
+		return s.EnsureStored(ctx, ref.ID)
+	}
+	if s.tvStore == nil {
+		return errors.New("no tv store configured")
+	}
+	if _, _, err := s.tvStore.GetTV(ctx, ref.ID); !errors.Is(err, domain.ErrNotFound) {
+		return err // nil when already stored
+	}
+	show, err := s.GetTVDetails(ctx, ref.ID)
+	if err != nil {
+		return err
+	}
+	return s.tvStore.UpsertTV(ctx, show)
+}
+
 // EnsureStored makes sure the movie has a row in the store (L2), which the
 // user library references. A movie known only from a list page is fetched
 // (L1 or TMDB) and stored. ErrNotFound means TMDB has no such movie.
@@ -343,6 +476,31 @@ func cacheAside[T any](ctx context.Context, s *Catalog, key string, load func(co
 func popularKey(page int) string { return fmt.Sprintf("catalog:popular:%d", page) }
 func movieKey(id int) string     { return fmt.Sprintf("catalog:movie:%d", id) }
 func personKey(id int) string    { return fmt.Sprintf("catalog:person:%d", id) }
+func tvKey(id int) string        { return fmt.Sprintf("catalog:tv:%d", id) }
+func popularTVKey(page int) string {
+	return fmt.Sprintf("catalog:popular-tv:%d", page)
+}
+func discoverKey(mediaType string, genreID, page int) string {
+	return fmt.Sprintf("catalog:discover:%s:%d:%d", mediaType, genreID, page)
+}
+
+func searchTVKey(q string, page int) string {
+	return fmt.Sprintf("catalog:search-tv:%d:%s", page, strings.ToLower(q))
+}
+
+// validSearch trims and collapses the query and checks it and the page.
+func validSearch(query string, page int) (string, error) {
+	q := strings.Join(strings.Fields(query), " ")
+	switch {
+	case q == "":
+		return "", fmt.Errorf("%w: query is required", domain.ErrInvalidInput)
+	case utf8.RuneCountInString(q) > maxQueryLen:
+		return "", fmt.Errorf("%w: query must be at most %d characters", domain.ErrInvalidInput, maxQueryLen)
+	case page < 1 || page > maxPage:
+		return "", fmt.Errorf("%w: page must be 1..%d", domain.ErrInvalidInput, maxPage)
+	}
+	return q, nil
+}
 
 // searchKey is case-insensitive: "Dune" and "dune" share one entry.
 func searchKey(q string, page int) string {

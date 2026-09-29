@@ -41,7 +41,11 @@ type Client struct {
 	log     *slog.Logger
 }
 
-var _ domain.MovieProvider = (*Client)(nil)
+var (
+	_ domain.MovieProvider = (*Client)(nil)
+	_ domain.Discoverer    = (*Client)(nil)
+	_ domain.TVProvider    = (*Client)(nil)
+)
 
 func New(cfg Config) *Client {
 	if cfg.Timeout <= 0 {
@@ -110,6 +114,70 @@ func (c *Client) SearchMovies(ctx context.Context, query string, page int) (doma
 	q := url.Values{"query": {query}, "page": {strconv.Itoa(page)}, "include_adult": {"false"}}
 	if err := c.get(ctx, "/search/movie", q, &w); err != nil {
 		return domain.MoviePage{}, err
+	}
+	return w.toDomain(), nil
+}
+
+// discoverMinVotes keeps obscure, barely rated titles out of discovery.
+const discoverMinVotes = "200"
+
+// DiscoverMovies is /discover/movie: popular movies, optionally of one genre.
+func (c *Client) DiscoverMovies(ctx context.Context, f domain.DiscoverFilter) (domain.MoviePage, error) {
+	var w popularResponse
+	q := url.Values{
+		"page": {strconv.Itoa(f.Page)}, "sort_by": {"popularity.desc"},
+		"include_adult": {"false"}, "include_video": {"false"}, "vote_count.gte": {discoverMinVotes},
+	}
+	if f.GenreID > 0 {
+		q.Set("with_genres", strconv.Itoa(f.GenreID))
+	}
+	if err := c.get(ctx, "/discover/movie", q, &w); err != nil {
+		return domain.MoviePage{}, err
+	}
+	return w.toDomain(), nil
+}
+
+// tvExcludedGenres keeps talk shows, news and reality TV (TMDB genres 10767,
+// 10763, 10764) out of "popular": /tv/popular is dominated by them.
+const tvExcludedGenres = "10767,10763,10764"
+
+// GetPopularTV is popular scripted series: DiscoverTV of any genre.
+func (c *Client) GetPopularTV(ctx context.Context, page int) (domain.MoviePage, error) {
+	return c.DiscoverTV(ctx, domain.DiscoverFilter{Page: page})
+}
+
+// DiscoverTV is /discover/tv: popular scripted series, optionally of one
+// (TV) genre.
+func (c *Client) DiscoverTV(ctx context.Context, f domain.DiscoverFilter) (domain.MoviePage, error) {
+	var w tvPageWire
+	q := url.Values{
+		"page": {strconv.Itoa(f.Page)}, "sort_by": {"popularity.desc"}, "include_adult": {"false"},
+		"vote_count.gte": {discoverMinVotes}, "without_genres": {tvExcludedGenres},
+	}
+	if f.GenreID > 0 {
+		q.Set("with_genres", strconv.Itoa(f.GenreID))
+	}
+	if err := c.get(ctx, "/discover/tv", q, &w); err != nil {
+		return domain.MoviePage{}, err
+	}
+	return w.toDomain(), nil
+}
+
+func (c *Client) SearchTV(ctx context.Context, query string, page int) (domain.MoviePage, error) {
+	var w tvPageWire
+	q := url.Values{"query": {query}, "page": {strconv.Itoa(page)}, "include_adult": {"false"}}
+	if err := c.get(ctx, "/search/tv", q, &w); err != nil {
+		return domain.MoviePage{}, err
+	}
+	return w.toDomain(), nil
+}
+
+// GetTVDetails fetches /tv/{id} with its trailer, cast and IMDb id.
+func (c *Client) GetTVDetails(ctx context.Context, id int) (domain.Movie, error) {
+	var w tvWire
+	q := url.Values{"append_to_response": {"videos,credits,external_ids"}}
+	if err := c.get(ctx, "/tv/"+strconv.Itoa(id), q, &w); err != nil {
+		return domain.Movie{}, err
 	}
 	return w.toDomain(), nil
 }

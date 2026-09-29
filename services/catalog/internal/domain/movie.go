@@ -20,8 +20,19 @@ type Genre struct {
 	Name string `json:"name"`
 }
 
+// Media types. TMDB numbers movies and TV series separately (movie 1399 and
+// tv 1399 are different titles), so a title is identified by both.
+const (
+	MediaMovie = "movie"
+	MediaTV    = "tv"
+)
+
+// Movie is a title: a movie, or a TV series (MediaType "tv") mapped onto the
+// same shape so lists and cards treat both alike (name -> Title,
+// first_air_date -> ReleaseDate, episode length -> Runtime).
 type Movie struct {
 	ID           int     `json:"id"`
+	MediaType    string  `json:"media_type,omitempty"` // "movie" (also when empty) or "tv"
 	Title        string  `json:"title"`
 	Overview     string  `json:"overview"`
 	PosterPath   string  `json:"poster_path,omitempty"`
@@ -43,6 +54,18 @@ type Movie struct {
 	IMDbVotes  int     `json:"imdb_votes,omitempty"`
 	// Stored with the IMDb rating (movie details only; lists leave it empty).
 	OMDbDetails
+	// TV series only (details).
+	TVDetails
+}
+
+// TVDetails are the series-specific facts of a TV details response.
+type TVDetails struct {
+	NumberOfSeasons  int      `json:"number_of_seasons,omitempty"`
+	NumberOfEpisodes int      `json:"number_of_episodes,omitempty"`
+	Status           string   `json:"status,omitempty"` // "Returning Series", "Ended", "Canceled"...
+	LastAirDate      string   `json:"last_air_date,omitempty"`
+	Networks         []string `json:"networks,omitempty"`
+	Creators         []string `json:"creators,omitempty"`
 }
 
 type MoviePage struct {

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import dynamic from "next/dynamic";
 
+import { NavTracker } from "@/components/providers/nav-tracker";
 import { Toaster } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api-client";
 import { hydrateAuthStore } from "@/store/auth-store";
@@ -58,6 +59,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       {children}
+      <NavTracker />
       <GlobalAuthDialog />
       {/* Bottom-center: clear of the top nav and of dialog headers. */}
       <Toaster position="bottom-center" />

@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Pause, Play, RotateCw } from "lucide-react";
 
 import { backdropUrl } from "@/lib/tmdb-image";
+import { useT } from "@/i18n";
 import { displayName } from "@/lib/format";
 import type { PlaybackState } from "@/types/watch-party";
 
@@ -13,6 +14,12 @@ function formatDuration(totalSeconds: number): string {
   const m = Math.floor(s / 60);
   const rem = s % 60;
   return `${m}:${rem.toString().padStart(2, "0")}`;
+}
+
+/** Whole seconds since an ISO time; 0 for a bad or future one (clock skew). */
+function secondsSince(iso: string): number {
+  const ms = Date.now() - Date.parse(iso);
+  return Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : 0;
 }
 
 /**
@@ -42,6 +49,7 @@ export function VideoPlayerPlaceholder({
   onPause: (position: number) => void;
   onSeek: (position: number) => void;
 }) {
+  const { t, locale } = useT();
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [lastEvent, setLastEvent] = useState<PlaybackState | null>(null);
@@ -57,8 +65,11 @@ export function VideoPlayerPlaceholder({
   if (playback !== syncedPlayback) {
     setSyncedPlayback(playback);
     if (playback) {
-      setIsPlaying(playback.action !== "pause");
-      setPosition(playback.timestamp);
+      const playing = playback.action !== "pause";
+      setIsPlaying(playing);
+      // A room that's playing has moved on since that event (a late joiner
+      // gets the last one, maybe minutes old): catch up to where it is now.
+      setPosition(playing ? playback.timestamp + secondsSince(playback.updated_at) : playback.timestamp);
       setLastEvent(playback);
     }
   }
@@ -98,7 +109,7 @@ export function VideoPlayerPlaceholder({
           <button
             type="button"
             onClick={toggle}
-            aria-label={isPlaying ? "Pause" : "Play"}
+            aria-label={t(isPlaying ? "player.pause" : "player.play")}
             className="flex size-16 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
           >
             {isPlaying ? <Pause className="size-7 fill-current" /> : <Play className="ml-1 size-7 fill-current" />}
@@ -106,7 +117,7 @@ export function VideoPlayerPlaceholder({
           <button
             type="button"
             onClick={skip}
-            aria-label="Skip 10 seconds"
+            aria-label={t("player.skip")}
             className="flex size-10 items-center justify-center rounded-full bg-black/50 text-foreground backdrop-blur-sm transition-colors hover:bg-black/70"
           >
             <RotateCw className="size-4" />
@@ -119,10 +130,13 @@ export function VideoPlayerPlaceholder({
 
       <div className="absolute bottom-3 left-3 rounded-full bg-black/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur-sm">
         {!connected
-          ? "Not synced — join the watch party to sync playback"
+          ? t("player.notSynced")
           : lastEvent
-            ? `${displayName(lastEvent.user_id, currentUserId)} ${lastEvent.action === "seek" ? "skipped to" : lastEvent.action === "play" ? "pressed play" : "paused"} · ${formatDuration(lastEvent.timestamp)}`
-            : "Synced — no activity yet"}
+            ? t(lastEvent.action === "seek" ? "player.skipped" : lastEvent.action === "play" ? "player.pressedPlay" : "player.paused", {
+                name: displayName(lastEvent.user_id, currentUserId, locale),
+                time: formatDuration(lastEvent.timestamp),
+              })
+            : t("player.noActivity")}
       </div>
     </div>
   );

@@ -5,14 +5,16 @@ import { Check } from "lucide-react";
 import { StarRatingDisplay, StarRatingInput } from "@/components/movies/star-rating";
 import { useRateMovie } from "@/hooks/queries";
 import { useMyRating, useRequireAuth } from "@/hooks/use-library";
+import { useT } from "@/i18n";
 import type { Interactions, Movie } from "@/types/movie";
 
 /** Community average plus the user's own stars. The stars are shown to
  *  everyone; clicking one while signed out opens sign-in instead. */
 export function RatingSection({ movie, interactions }: { movie: Movie; interactions: Interactions }) {
-  const rate = useRateMovie(movie.id, movie);
-  const myRating = useMyRating(movie.id);
+  const rate = useRateMovie(movie);
+  const myRating = useMyRating(movie);
   const requireAuth = useRequireAuth();
+  const { t } = useT();
   // Show the score being sent right away, then the stored one.
   const shown = rate.isPending ? rate.variables : myRating;
 
@@ -31,12 +33,12 @@ export function RatingSection({ movie, interactions }: { movie: Movie; interacti
         {myRating !== undefined && !rate.isPending ? (
           <span className="flex items-center gap-1 text-sm text-muted-foreground">
             <Check className="size-3.5 text-primary" />
-            You rated {myRating}/10
+            {t("rating.youRated", { n: myRating })}
           </span>
         ) : (
-          !rate.isPending && <span className="text-sm text-muted-foreground">Rate it</span>
+          !rate.isPending && <span className="text-sm text-muted-foreground">{t("rating.rateIt")}</span>
         )}
-        {rate.isError && <span className="text-sm text-red-300">Couldn&apos;t save your rating.</span>}
+        {rate.isError && <span className="text-sm text-red-300">{t("rating.saveFailed")}</span>}
       </div>
     </div>
   );

@@ -2,6 +2,7 @@
 package transport
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,15 +18,26 @@ import (
 const maxBody = 16 << 10
 
 type Handler struct {
-	cmd   *service.Command
-	query *service.Query
-	ready func() bool
-	log   *slog.Logger
+	cmd        *service.Command
+	query      *service.Query
+	account    *service.Account
+	moderation *service.Moderation
+	ready      func() bool
+	log        *slog.Logger
 }
 
+// Option adds an optional part of the API.
+type Option func(*Handler)
+
+// WithModeration serves comment reports and user blocks.
+func WithModeration(m *service.Moderation) Option { return func(h *Handler) { h.moderation = m } }
+
 // NewHandler builds the router. cmd or query may be nil to serve only one side.
-func NewHandler(cmd *service.Command, query *service.Query, ready func() bool, log *slog.Logger) http.Handler {
-	h := &Handler{cmd: cmd, query: query, ready: ready, log: log}
+func NewHandler(cmd *service.Command, query *service.Query, account *service.Account, ready func() bool, log *slog.Logger, opts ...Option) http.Handler {
+	h := &Handler{cmd: cmd, query: query, account: account, ready: ready, log: log}
+	for _, o := range opts {
+		o(h)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
@@ -35,12 +47,29 @@ func NewHandler(cmd *service.Command, query *service.Query, ready func() bool, l
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	if cmd != nil {
-		mux.HandleFunc("POST /api/v1/movies/{id}/rate", h.rate)
-		mux.HandleFunc("POST /api/v1/movies/{id}/comment", h.comment)
+	// The same endpoints for movies and TV series: TMDB numbers them
+	// separately, so the path says which a title is.
+	for prefix, media := range map[string]string{"/api/v1/movies/": domain.MediaMovie, "/api/v1/tv/": domain.MediaTV} {
+		if cmd != nil {
+			mux.HandleFunc("POST "+prefix+"{id}/rate", h.rate(media))
+			mux.HandleFunc("POST "+prefix+"{id}/comment", h.comment(media))
+		}
+		if query != nil {
+			mux.HandleFunc("GET "+prefix+"{id}/interactions", h.interactions(media))
+		}
 	}
-	if query != nil {
-		mux.HandleFunc("GET /api/v1/movies/{id}/interactions", h.interactions)
+	if account != nil {
+		mux.HandleFunc("POST /api/v1/account/purge", h.purgeUser())
+	}
+	if h.moderation != nil {
+		mux.HandleFunc("POST /api/v1/comments/{id}/report", h.reportComment())
+		mux.HandleFunc("GET /api/v1/blocks", h.blocked())
+		mux.HandleFunc("PUT /api/v1/blocks/{userId}", h.block(h.moderation.Block))
+		mux.HandleFunc("DELETE /api/v1/blocks/{userId}", h.block(h.moderation.Unblock))
+		// For the admin panel. The gateway lets only admins through.
+		mux.HandleFunc("GET /api/v1/admin/reports", h.reports())
+		mux.HandleFunc("POST /api/v1/admin/comments/{id}/delete", h.commentAction(h.moderation.DeleteComment))
+		mux.HandleFunc("POST /api/v1/admin/comments/{id}/dismiss", h.commentAction(h.moderation.DismissReports))
 	}
 	return mux
 }
@@ -69,38 +98,42 @@ func userID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, true
 }
 
-func (h *Handler) rate(w http.ResponseWriter, r *http.Request) {
-	uid, ok := userID(w, r)
-	if !ok {
-		return
+func (h *Handler) rate(media string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		t, ok := title(w, r, media)
+		if !ok {
+			return
+		}
+		var req rateRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		eventID, err := h.cmd.SubmitRating(r.Context(), t, uid, req.Score)
+		h.accepted(w, eventID, err)
 	}
-	id, ok := movieID(w, r)
-	if !ok {
-		return
-	}
-	var req rateRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	eventID, err := h.cmd.SubmitRating(r.Context(), id, uid, req.Score)
-	h.accepted(w, eventID, err)
 }
 
-func (h *Handler) comment(w http.ResponseWriter, r *http.Request) {
-	uid, ok := userID(w, r)
-	if !ok {
-		return
+func (h *Handler) comment(media string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		t, ok := title(w, r, media)
+		if !ok {
+			return
+		}
+		var req commentRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		eventID, err := h.cmd.SubmitComment(r.Context(), t, uid, req.Text)
+		h.accepted(w, eventID, err)
 	}
-	id, ok := movieID(w, r)
-	if !ok {
-		return
-	}
-	var req commentRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	eventID, err := h.cmd.SubmitComment(r.Context(), id, uid, req.Text)
-	h.accepted(w, eventID, err)
 }
 
 // accepted replies 202: the event is safely on the broker, but not yet
@@ -117,8 +150,12 @@ func (h *Handler) accepted(w http.ResponseWriter, eventID string, err error) {
 	}
 }
 
-func (h *Handler) interactions(w http.ResponseWriter, r *http.Request) {
-	id, ok := movieID(w, r)
+func (h *Handler) interactions(media string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) { h.serveInteractions(w, r, media) }
+}
+
+func (h *Handler) serveInteractions(w http.ResponseWriter, r *http.Request, media string) {
+	t, ok := title(w, r, media)
 	if !ok {
 		return
 	}
@@ -131,7 +168,7 @@ func (h *Handler) interactions(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	res, err := h.query.GetInteractions(r.Context(), id, limit)
+	res, err := h.query.GetInteractions(r.Context(), t, limit)
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, res)
@@ -143,13 +180,14 @@ func (h *Handler) interactions(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func movieID(w http.ResponseWriter, r *http.Request) (int, bool) {
+// title is the {id} path value as a title of the route's media type.
+func title(w http.ResponseWriter, r *http.Request, media string) (domain.Title, bool) {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil || id < 1 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "movie id must be a positive integer"})
-		return 0, false
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id must be a positive integer"})
+		return domain.Title{}, false
 	}
-	return id, true
+	return domain.Title{Media: media, ID: id}, true
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -170,4 +208,104 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (h *Handler) purgeUser() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		if err := h.account.PurgeUser(r.Context(), uid); err != nil {
+			h.log.Error("failed to purge user", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "temporarily unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "purged"})
+	}
+}
+
+// moderationError maps a moderation failure to a status.
+func (h *Handler) moderationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrInvalidInput):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	case errors.Is(err, domain.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+	default:
+		h.log.Error("moderation failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily unavailable"})
+	}
+}
+
+func (h *Handler) reportComment() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		if err := h.moderation.ReportComment(r.Context(), uid, r.PathValue("id")); err != nil {
+			h.moderationError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// block serves PUT and DELETE /blocks/{userId}: act(blocker, blocked).
+func (h *Handler) block(act func(ctx context.Context, blocker, blocked string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		if err := act(r.Context(), uid, r.PathValue("userId")); err != nil {
+			h.moderationError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (h *Handler) blocked() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		ids, err := h.moderation.Blocked(r.Context(), uid)
+		if err != nil {
+			h.moderationError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string][]string{"blocked": ids})
+	}
+}
+
+func (h *Handler) reports() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := userID(w, r); !ok {
+			return
+		}
+		items, err := h.moderation.Reported(r.Context())
+		if err != nil {
+			h.moderationError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	}
+}
+
+// commentAction serves the admin's per-comment actions: act(commentID).
+func (h *Handler) commentAction(act func(ctx context.Context, commentID string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := userID(w, r); !ok {
+			return
+		}
+		if err := act(r.Context(), r.PathValue("id")); err != nil {
+			h.moderationError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }

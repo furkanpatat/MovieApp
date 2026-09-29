@@ -62,7 +62,8 @@ func run() error {
 		return err
 	}
 	tokens := jwtauth.NewManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTTTL)
-	svc, err := service.New(postgres.New(pool), hasher, tokens, log)
+	repo := postgres.New(pool)
+	svc, err := service.New(repo, hasher, tokens, log, service.WithRefresh(repo, cfg.RefreshTTL))
 	if err != nil {
 		return err
 	}

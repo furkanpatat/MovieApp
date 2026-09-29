@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>devices</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600&display=block" rel="stylesheet" />
+<!--
+  The Watch Party stage: a desktop monitor (the host) and a phone (the
+  guest). Screenshotted twice by build.mjs: ?layer=bg is the backdrop,
+  ?layer=frame the bezels with transparent screens, and the two recordings
+  go in between. Screen rectangles must match SCREENS in lib/ffmpeg.mjs.
+-->
+<style>
+  :root { --gold: #fbbf24; --mute: #a1a1aa; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: transparent;
+    font-family: Outfit, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  .bg { position: absolute; inset: 0; background: #09090b; overflow: hidden; }
+  .bg::before { content: ""; position: absolute; inset: -20%; filter: blur(90px); opacity: .5;
+    background:
+      radial-gradient(28% 34% at 34% 48%, rgba(251,191,36,.26), transparent 70%),
+      radial-gradient(22% 30% at 80% 55%, rgba(220,38,38,.16), transparent 70%); }
+  .bg::after { content: ""; position: absolute; inset: 0; background: radial-gradient(75% 75% at 50% 50%, transparent 55%, rgba(0,0,0,.6)); }
+
+  /* Monitor: screen 1216x760 at (120, 128). */
+  .monitor { position: absolute; left: 106px; top: 114px; width: 1244px; height: 788px; border-radius: 24px;
+    border: 14px solid #0c0c0e; box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 40px 120px rgba(0,0,0,.6); }
+  .neck { position: absolute; left: 668px; top: 903px; width: 120px; height: 62px;
+    background: linear-gradient(180deg, #1c1c20, #2a2a30); clip-path: polygon(14% 0, 86% 0, 100% 100%, 0 100%); }
+  .base { position: absolute; left: 578px; top: 964px; width: 300px; height: 12px; border-radius: 8px;
+    background: linear-gradient(180deg, #34343b, #18181b); box-shadow: 0 10px 30px rgba(0,0,0,.6); }
+
+  /* Phone: screen 380x822 at (1452, 110). */
+  .phone { position: absolute; left: 1438px; top: 96px; width: 408px; height: 850px; border-radius: 62px;
+    border: 14px solid #0c0c0e; box-shadow: 0 0 0 2px #3f3f46, 0 40px 120px rgba(0,0,0,.6); }
+  .island { position: absolute; left: 1596px; top: 122px; width: 92px; height: 26px; border-radius: 13px; background: #000; }
+
+  .label { position: absolute; top: 1004px; font-size: 20px; font-weight: 600; letter-spacing: .3em;
+    text-transform: uppercase; color: var(--gold); text-align: center; }
+  .label span { color: var(--mute); font-weight: 400; }
+</style>
+</head>
+<body>
+<script>
+  const layer = new URLSearchParams(location.search).get("layer") ?? "frame";
+  document.body.innerHTML = layer === "bg"
+    ? `<div class="bg"></div>`
+    : `<div class="monitor"></div><div class="neck"></div><div class="base"></div>
+       <div class="phone"></div><div class="island"></div>
+       <div class="label" style="left:106px;width:1244px">Host <span>· Desktop</span></div>
+       <div class="label" style="left:1424px;width:436px">Guest <span>· Phone</span></div>`;
+</script>
+</body>
+</html>
