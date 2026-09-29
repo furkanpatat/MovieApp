@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono, Outfit } from "next/font/google";
 
 import { Providers } from "@/components/providers/providers";
+import { SiteFooter } from "@/components/layout/site-footer";
 import { TopNav } from "@/components/layout/top-nav";
 import { Assistant } from "@/components/assistant/assistant";
 import { HtmlLang } from "@/components/layout/language-toggle";
@@ -39,6 +40,7 @@ export default function RootLayout({
         <Providers>
           <TopNav />
           <main className="flex flex-1 flex-col">{children}</main>
+          <SiteFooter />
           {modal}
           <Assistant />
           <HtmlLang />

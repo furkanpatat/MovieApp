@@ -1,10 +1,12 @@
+import { Image } from "expo-image";
 import { router } from "expo-router";
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { TitleRow } from "@/components/title-row";
-import { API_URL } from "@/lib/api";
 import { READABLE_WIDTH } from "@/lib/layout";
+import * as WebBrowser from "expo-web-browser";
+
 import { useLocale, useT } from "@/i18n";
 import { useLibrary, useMyRatings } from "@/lib/queries";
 import { logout } from "@/lib/session";
@@ -37,6 +39,7 @@ export default function Profile() {
           </Pressable>
         </View>
         <LanguagePicker />
+        <Attribution />
         </View>
       </View>
     );
@@ -77,8 +80,23 @@ export default function Profile() {
       <Pressable onPress={() => void logout()} style={({ pressed }) => [styles.secondary, pressed && { opacity: 0.8 }]}>
         <Text style={styles.secondaryText}>{t.profile.signOut}</Text>
       </Pressable>
-      <Text style={styles.server}>{API_URL.replace(/^https?:\/\//, "")}</Text>
+      <Attribution />
     </ScrollView>
+  );
+}
+
+/** The TMDB attribution their API terms require: the notice and their
+ *  logo (less prominent than ours), plus the privacy policy. */
+function Attribution() {
+  const { t } = useT();
+  return (
+    <View style={styles.attribution}>
+      <Image source={require("@/assets/images/tmdb-logo.png")} style={styles.tmdb} contentFit="contain" accessibilityLabel="TMDB" />
+      <Text style={styles.notice}>{t.profile.tmdb}</Text>
+      <Pressable onPress={() => void WebBrowser.openBrowserAsync("https://kinora.duckdns.org/privacy")} hitSlop={8}>
+        <Text style={styles.link}>{t.profile.privacy}</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -134,5 +152,8 @@ const styles = StyleSheet.create({
   segOn: { backgroundColor: colors.gold },
   segText: { color: colors.mute, fontWeight: "700" },
   segTextOn: { color: colors.onGold },
-  server: { color: colors.dim, textAlign: "center", marginTop: 16, fontSize: 12 },
+  attribution: { alignItems: "center", gap: 8, marginTop: 28, marginHorizontal: 24 },
+  tmdb: { width: 110, height: 14, opacity: 0.85 },
+  notice: { color: colors.dim, fontSize: 11, textAlign: "center", lineHeight: 15 },
+  link: { color: colors.mute, fontSize: 12, fontWeight: "600", textDecorationLine: "underline" },
 });

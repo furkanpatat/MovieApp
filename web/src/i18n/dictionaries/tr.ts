@@ -6,6 +6,10 @@ import type { Dictionary } from "@/i18n/dictionaries/en";
  * `...One` ve `...Other` çiftleri çoğunlukla aynıdır.
  */
 export const tr: Dictionary = {
+  footer: {
+    tmdb: "Bu uygulama TMDB ve TMDB API'lerini kullanır ancak TMDB tarafından onaylanmış, sertifikalandırılmış veya başka bir şekilde desteklenmiş değildir.",
+    privacy: "Gizlilik",
+  },
   common: {
     tryAgain: "Tekrar dene",
     signIn: "Giriş yap",

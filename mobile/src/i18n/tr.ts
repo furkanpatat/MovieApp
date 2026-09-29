@@ -91,6 +91,8 @@ export const tr: Dictionary = {
     listEmpty: "Sonra izlemek istediklerini detay sayfasından listene ekle.",
     language: "Dil",
     signOut: "Çıkış yap",
+    tmdb: "Bu uygulama TMDB ve TMDB API'lerini kullanır ancak TMDB tarafından onaylanmış, sertifikalandırılmış veya başka bir şekilde desteklenmiş değildir.",
+    privacy: "Gizlilik politikası",
   },
   login: {
     welcome: "Tekrar hoş geldin",

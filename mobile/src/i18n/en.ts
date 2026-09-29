@@ -89,6 +89,8 @@ export const en = {
     listEmpty: "Save titles to watch later from their details.",
     language: "Language",
     signOut: "Sign out",
+    tmdb: "This application uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.",
+    privacy: "Privacy policy",
   },
   login: {
     welcome: "Welcome back",

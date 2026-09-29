@@ -5,6 +5,10 @@
  * a plural, there are two keys (`...One` / `...Other`).
  */
 export const en = {
+  footer: {
+    tmdb: "This application uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.",
+    privacy: "Privacy",
+  },
   common: {
     tryAgain: "Try again",
     signIn: "Sign in",
