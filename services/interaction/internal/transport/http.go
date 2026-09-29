@@ -2,6 +2,7 @@
 package transport
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,16 +18,26 @@ import (
 const maxBody = 16 << 10
 
 type Handler struct {
-	cmd     *service.Command
-	query   *service.Query
-	account *service.Account
-	ready   func() bool
-	log     *slog.Logger
+	cmd        *service.Command
+	query      *service.Query
+	account    *service.Account
+	moderation *service.Moderation
+	ready      func() bool
+	log        *slog.Logger
 }
 
+// Option adds an optional part of the API.
+type Option func(*Handler)
+
+// WithModeration serves comment reports and user blocks.
+func WithModeration(m *service.Moderation) Option { return func(h *Handler) { h.moderation = m } }
+
 // NewHandler builds the router. cmd or query may be nil to serve only one side.
-func NewHandler(cmd *service.Command, query *service.Query, account *service.Account, ready func() bool, log *slog.Logger) http.Handler {
+func NewHandler(cmd *service.Command, query *service.Query, account *service.Account, ready func() bool, log *slog.Logger, opts ...Option) http.Handler {
 	h := &Handler{cmd: cmd, query: query, account: account, ready: ready, log: log}
+	for _, o := range opts {
+		o(h)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
@@ -49,6 +60,12 @@ func NewHandler(cmd *service.Command, query *service.Query, account *service.Acc
 	}
 	if account != nil {
 		mux.HandleFunc("POST /api/v1/account/purge", h.purgeUser())
+	}
+	if h.moderation != nil {
+		mux.HandleFunc("POST /api/v1/comments/{id}/report", h.reportComment())
+		mux.HandleFunc("GET /api/v1/blocks", h.blocked())
+		mux.HandleFunc("PUT /api/v1/blocks/{userId}", h.block(h.moderation.Block))
+		mux.HandleFunc("DELETE /api/v1/blocks/{userId}", h.block(h.moderation.Unblock))
 	}
 	return mux
 }
@@ -201,5 +218,62 @@ func (h *Handler) purgeUser() http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "purged"})
+	}
+}
+
+// moderationError maps a moderation failure to a status.
+func (h *Handler) moderationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrInvalidInput):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	case errors.Is(err, domain.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+	default:
+		h.log.Error("moderation failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily unavailable"})
+	}
+}
+
+func (h *Handler) reportComment() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		if err := h.moderation.ReportComment(r.Context(), uid, r.PathValue("id")); err != nil {
+			h.moderationError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// block serves PUT and DELETE /blocks/{userId}: act(blocker, blocked).
+func (h *Handler) block(act func(ctx context.Context, blocker, blocked string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		if err := act(r.Context(), uid, r.PathValue("userId")); err != nil {
+			h.moderationError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (h *Handler) blocked() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		ids, err := h.moderation.Blocked(r.Context(), uid)
+		if err != nil {
+			h.moderationError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string][]string{"blocked": ids})
 	}
 }

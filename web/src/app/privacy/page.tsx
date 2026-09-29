@@ -55,6 +55,10 @@ export default function PrivacyPage() {
           public profile. Your list, your ratings and your email address are private. Watch Party chat goes only to
           the people in the room and isn&apos;t stored.
         </p>
+        <p>
+          Comments must be civil. You can report any comment, or block its author to hide all their comments, from the
+          menu next to it. We review reports and remove comments and accounts that break these rules.
+        </p>
       </Section>
 
       <Section title="3. Services we rely on">

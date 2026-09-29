@@ -67,6 +67,8 @@ type gateway struct {
 //	GET  /api/v1/tv/popular, /tv/{id}      -> Catalog        (public; TV series)
 //	GET  /api/v1/tv/{id}/interactions      -> Interaction    (public)
 //	POST /api/v1/tv/{id}/rate|comment      -> Interaction    (JWT required)
+//	POST /api/v1/comments/{id}/report      -> Interaction    (JWT required)
+//	GET|PUT|DELETE /api/v1/blocks[/{userId}] -> Interaction  (JWT required)
 //	GET  /api/v1/movies/{id}/interactions  -> Interaction    (public)
 //	POST /api/v1/movies/{id}/rate|comment  -> Interaction    (JWT required)
 //	GET|POST /api/v1/watchlist, DELETE /api/v1/watchlist/{movie_id},
@@ -132,6 +134,11 @@ func New(d Deps) http.Handler {
 	api.Handle("GET /api/v1/tv/{id}/interactions", interaction)
 	api.Handle("POST /api/v1/tv/{id}/rate", requireAuth(interaction))
 	api.Handle("POST /api/v1/tv/{id}/comment", requireAuth(interaction))
+	// Reporting a comment and blocking a user (moderation).
+	api.Handle("POST /api/v1/comments/{id}/report", requireAuth(interaction))
+	api.Handle("GET /api/v1/blocks", requireAuth(interaction))
+	api.Handle("PUT /api/v1/blocks/{userId}", requireAuth(interaction))
+	api.Handle("DELETE /api/v1/blocks/{userId}", requireAuth(interaction))
 	// The user's library (watchlist + personal ratings). The user is always
 	// the authenticated one: requireAuth injects X-User-Id, clients can't.
 	api.Handle("GET /api/v1/watchlist", requireAuth(catalog))

@@ -1,11 +1,11 @@
 import { router } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { initialWindowMetrics } from "react-native-safe-area-context";
 
 import { useT } from "@/i18n";
-import { useComment, useInteractions } from "@/lib/queries";
+import { useBlockedUsers, useBlockUser, useComment, useInteractions, useReportComment } from "@/lib/queries";
 import { displayName } from "@/lib/party";
 import { useAuth } from "@/store/auth";
 import { colors } from "@/theme";
@@ -24,7 +24,40 @@ export function CommentsSheet({ media, id, title, open, onClose }: { media: Medi
   const q = useInteractions(media, id, open);
   const comment = useComment(media, id);
   const [draft, setDraft] = useState("");
-  const comments = q.data?.recent_comments ?? [];
+  const blocked = useBlockedUsers().data;
+  const report = useReportComment();
+  const blockUser = useBlockUser();
+  const comments = (q.data?.recent_comments ?? []).filter((c) => !blocked?.includes(c.user_id));
+
+  // Report a comment, or block its author (which hides all their comments).
+  const moderate = (c: { id: string; user_id: string }) =>
+    Alert.alert(t.discover.more, undefined, [
+      {
+        text: t.discover.report,
+        onPress: () =>
+          report.mutate(c.id, {
+            onSuccess: () => Alert.alert(t.discover.reported),
+            onError: () => Alert.alert(t.discover.reportFailed),
+          }),
+      },
+      {
+        text: t.discover.block,
+        style: "destructive",
+        onPress: () =>
+          blockUser.mutate(
+            { target: c.user_id, block: true },
+            {
+              onSuccess: () =>
+                Alert.alert(t.discover.blocked, undefined, [
+                  { text: t.discover.undo, onPress: () => blockUser.mutate({ target: c.user_id, block: false }) },
+                  { text: t.discover.ok, style: "cancel" },
+                ]),
+              onError: () => Alert.alert(t.discover.blockFailed),
+            },
+          ),
+      },
+      { text: t.discover.close, style: "cancel" },
+    ]);
 
   // Relative to when the list was fetched (render stays pure).
   const ago = (iso: string) => {
@@ -86,6 +119,11 @@ export function CommentsSheet({ media, id, title, open, onClose }: { media: Medi
                       </Text>
                       <Text style={styles.text}>{item.text}</Text>
                     </View>
+                    {signedIn && !pending && item.user_id !== me && (
+                      <Pressable onPress={() => moderate(item)} hitSlop={10} style={styles.more} accessibilityLabel={t.discover.more}>
+                        <Text style={styles.moreText}>⋯</Text>
+                      </Pressable>
+                    )}
                   </View>
                 );
               }}
@@ -146,6 +184,8 @@ const styles = StyleSheet.create({
   who: { color: colors.text, fontWeight: "700", fontSize: 13 },
   when: { color: colors.dim, fontWeight: "400" },
   text: { color: "#e4e4e7", fontSize: 15, marginTop: 2, lineHeight: 20 },
+  more: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  moreText: { color: colors.mute, fontSize: 20, fontWeight: "800" },
   error: { color: colors.danger, marginTop: 6 },
   composer: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginTop: 10 },
   input: { flex: 1, maxHeight: 110, backgroundColor: colors.bg, color: colors.text, borderRadius: 22, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, fontSize: 16, borderWidth: 1, borderColor: colors.border },

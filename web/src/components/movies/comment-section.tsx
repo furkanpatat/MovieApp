@@ -2,20 +2,22 @@
 
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
-import { ArrowUp, Loader2, MessageCircle, SendHorizontal } from "lucide-react";
+import { ArrowUp, Ban, Flag, Loader2, MessageCircle, MoreHorizontal, SendHorizontal } from "lucide-react";
+import { toast } from "sonner";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { plural, useT } from "@/i18n";
 import type { TitleRef } from "@/lib/media";
-import { useComment, useInteractions } from "@/hooks/queries";
+import { useBlockedUsers, useBlockUser, useComment, useInteractions, useReportComment } from "@/hooks/queries";
 import { useRequireAuth } from "@/hooks/use-library";
 import { useAuthStore } from "@/store/auth-store";
 import { displayName, idColor, initials, relativeTime } from "@/lib/format";
 import type { OptimisticComment } from "@/hooks/queries";
-import type { Interactions } from "@/types/movie";
+import type { Comment, Interactions } from "@/types/movie";
 
 const MAX_LEN = 1000;
 
@@ -65,7 +67,8 @@ const SHEET_SPRING = { type: "spring", stiffness: 380, damping: 38, mass: 0.8 } 
 export function CommentSheet({ subject, title, trigger }: { subject: TitleRef; title: string; trigger: ReactNode }) {
   const [open, setOpen] = useState(false);
   const { data: interactions } = useInteractions(subject, open);
-  const count = interactions?.recent_comments.length ?? 0;
+  const blocked = useBlockedUsers().data;
+  const count = interactions?.recent_comments.filter((c) => !blocked?.includes(c.user_id)).length ?? 0;
   const { t } = useT();
   const drag = useDragControls();
   const keyboard = useKeyboardInset();
@@ -285,8 +288,10 @@ function CommentComposer({ subject }: { subject: TitleRef }) {
 function CommentList({ interactions }: { interactions: Interactions }) {
   const { t, locale } = useT();
   const currentUserId = useAuthStore((s) => s.userId);
+  const blocked = new Set(useBlockedUsers().data ?? []);
+  const comments = interactions.recent_comments.filter((c) => !blocked.has(c.user_id));
 
-  if (interactions.recent_comments.length === 0) {
+  if (comments.length === 0) {
     return (
       <p className="py-6 text-center text-sm text-muted-foreground">{t("comments.empty")}</p>
     );
@@ -294,7 +299,7 @@ function CommentList({ interactions }: { interactions: Interactions }) {
 
   return (
     <div className="space-y-4">
-      {interactions.recent_comments.map((c) => {
+      {comments.map((c) => {
         const optimistic = c as OptimisticComment;
         return (
           <div key={c.id} className={`flex gap-3 ${optimistic.pending ? "opacity-60" : ""}`}>
@@ -312,9 +317,53 @@ function CommentList({ interactions }: { interactions: Interactions }) {
               </div>
               <p className="mt-0.5 text-sm break-words text-foreground/90">{c.text}</p>
             </div>
+            {!optimistic.pending && currentUserId !== null && c.user_id !== currentUserId && <CommentMenu comment={c} />}
           </div>
         );
       })}
     </div>
+  );
+}
+
+/** Report a comment, or block its author (hiding all their comments). */
+function CommentMenu({ comment }: { comment: Comment }) {
+  const { t } = useT();
+  const report = useReportComment();
+  const blockUser = useBlockUser();
+
+  const onReport = () =>
+    report.mutate(comment.id, {
+      onSuccess: () => toast.success(t("comments.reported")),
+      onError: () => toast.error(t("comments.reportFailed")),
+    });
+  const onBlock = () =>
+    blockUser.mutate(
+      { target: comment.user_id, block: true },
+      {
+        onSuccess: () =>
+          toast(t("comments.blocked"), {
+            action: { label: t("comments.undo"), onClick: () => blockUser.mutate({ target: comment.user_id, block: false }) },
+          }),
+        onError: () => toast.error(t("comments.blockFailed")),
+      },
+    );
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={t("comments.more")}
+        className="flex size-8 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2"
+      >
+        <MoreHorizontal className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-max">
+        <DropdownMenuItem onSelect={onReport}>
+          <Flag /> {t("comments.report")}
+        </DropdownMenuItem>
+        <DropdownMenuItem variant="destructive" onSelect={onBlock}>
+          <Ban /> {t("comments.block")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

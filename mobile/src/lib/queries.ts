@@ -231,3 +231,29 @@ export function useComment(media: MediaType, id: number) {
     onSettled: () => setTimeout(() => void client.invalidateQueries({ queryKey: key }), 1200),
   });
 }
+
+/** The users the signed-in user has blocked: their comments are hidden. */
+export function useBlockedUsers() {
+  const token = useAuth((s) => s.token);
+  return useQuery({
+    queryKey: ["me", "blocks", token],
+    queryFn: async () => (await api<{ blocked: string[] }>("/api/v1/blocks")).blocked,
+    enabled: !!token,
+    staleTime: 60_000,
+  });
+}
+
+/** Block or unblock a user; the list refetches so their comments hide at once. */
+export function useBlockUser() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ target, block }: { target: string; block: boolean }) =>
+      api(`/api/v1/blocks/${encodeURIComponent(target)}`, { method: block ? "PUT" : "DELETE" }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["me", "blocks"] }),
+  });
+}
+
+/** Flag a comment for review. */
+export function useReportComment() {
+  return useMutation({ mutationFn: (commentId: string) => api(`/api/v1/comments/${commentId}/report`, { method: "POST" }) });
+}

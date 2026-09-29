@@ -284,3 +284,33 @@ export function useComment(title: TitleRef) {
     },
   });
 }
+
+/** GET /api/v1/blocks: the users the signed-in user has blocked (their
+ *  comments are hidden). Empty when signed out. */
+export function useBlockedUsers() {
+  const userId = useAuthStore((s) => s.userId);
+  return useQuery({
+    queryKey: ["blocks", userId],
+    queryFn: async () => (await apiFetch<{ blocked: string[] }>("/api/v1/blocks")).blocked,
+    enabled: userId !== null,
+    staleTime: 60_000,
+  });
+}
+
+/** Block or unblock a user; the list refetches so comments hide at once. */
+export function useBlockUser() {
+  const queryClient = useQueryClient();
+  const userId = useAuthStore((s) => s.userId);
+  return useMutation({
+    mutationFn: ({ target, block }: { target: string; block: boolean }) =>
+      apiFetch<void>(`/api/v1/blocks/${encodeURIComponent(target)}`, { method: block ? "PUT" : "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["blocks", userId] }),
+  });
+}
+
+/** POST /api/v1/comments/{id}/report: flag a comment for review. */
+export function useReportComment() {
+  return useMutation({
+    mutationFn: (commentId: string) => apiFetch<void>(`/api/v1/comments/${commentId}/report`, { method: "POST" }),
+  });
+}

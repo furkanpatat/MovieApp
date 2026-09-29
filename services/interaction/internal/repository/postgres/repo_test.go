@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -218,5 +219,78 @@ func TestPurgeUser(t *testing.T) {
 	// Idempotent: a retried purge finds nothing.
 	if again, err := repo.PurgeUser(ctx, user); err != nil || len(again) != 0 {
 		t.Fatalf("second purge: %+v %v", again, err)
+	}
+}
+
+func TestModeration(t *testing.T) {
+	repo, movie := setup(t)
+	ctx := context.Background()
+	t0 := time.Now().UTC().Truncate(time.Millisecond)
+	author, reporter := "author-"+uuid.NewString(), "reporter-"+uuid.NewString()
+	commentID := uuid.NewString()
+	pool, err := pgxpool.New(ctx, os.Getenv("TEST_POSTGRES_DSN"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM interaction.user_blocks WHERE blocker_id = ANY($1) OR blocked_id = ANY($1)`, []string{author, reporter, "someone"})
+		pool.Close()
+	})
+	if err := repo.SaveComment(ctx, domain.CommentAdded{EventID: commentID, MovieID: movie, UserID: author, Text: "rude", OccurredAt: t0}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A report is idempotent; a comment that isn't there is not found.
+	for range 2 {
+		if err := repo.ReportComment(ctx, commentID, reporter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.ReportComment(ctx, uuid.NewString(), reporter); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("report of a missing comment: %v", err)
+	}
+	var n int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM interaction.comment_reports WHERE comment_id = $1`, commentID).Scan(&n)
+	if n != 1 {
+		t.Fatalf("%d reports stored, want 1", n)
+	}
+
+	// Blocks: idempotent, listed, undone; nobody blocks themselves.
+	for range 2 {
+		if err := repo.BlockUser(ctx, reporter, author); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.BlockUser(ctx, reporter, reporter); err == nil {
+		t.Fatal("blocking yourself must fail")
+	}
+	if got, _ := repo.BlockedUsers(ctx, reporter); len(got) != 1 || got[0] != author {
+		t.Fatalf("blocked: %v", got)
+	}
+	if got, err := repo.BlockedUsers(ctx, author); err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("the author blocked nobody: %v %v", got, err)
+	}
+	if err := repo.UnblockUser(ctx, reporter, author); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := repo.BlockedUsers(ctx, reporter); len(got) != 0 {
+		t.Fatalf("after unblock: %v", got)
+	}
+
+	// Account deletion takes a user's reports and blocks, both ways.
+	_ = repo.BlockUser(ctx, reporter, author)
+	_ = repo.BlockUser(ctx, author, "someone")
+	if _, err := repo.PurgeUser(ctx, author); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := repo.BlockedUsers(ctx, reporter); len(got) != 0 {
+		t.Fatalf("a purged user stays blocked: %v", got)
+	}
+	if got, _ := repo.BlockedUsers(ctx, author); len(got) != 0 {
+		t.Fatalf("a purged user's blocks stay: %v", got)
+	}
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM interaction.comment_reports WHERE comment_id = $1`, commentID).Scan(&n)
+	if n != 0 {
+		t.Fatalf("reports of a deleted comment stay: %d", n)
 	}
 }

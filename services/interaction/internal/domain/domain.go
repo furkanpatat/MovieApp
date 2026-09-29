@@ -18,7 +18,10 @@ const (
 	MaxUserIDLen  = 64
 )
 
-var ErrInvalidInput = errors.New("invalid input")
+var (
+	ErrInvalidInput = errors.New("invalid input")
+	ErrNotFound     = errors.New("not found")
+)
 
 // Media types. TMDB numbers movies and TV series separately (movie 1399 and
 // tv 1399 are different titles), so a title is identified by both.
@@ -181,6 +184,18 @@ type Repository interface {
 	// PurgeUser deletes all ratings, comments, and unpublished events for a user.
 	// It decrements the stats of affected movies and returns their updated stats.
 	PurgeUser(ctx context.Context, userID string) ([]RatingStats, error)
+}
+
+// ModerationStore keeps comment reports and user blocks (PostgreSQL).
+type ModerationStore interface {
+	// ReportComment records that reporterID reported a comment. Reporting
+	// twice is fine; a comment that doesn't exist is ErrNotFound.
+	ReportComment(ctx context.Context, commentID, reporterID string) error
+	// BlockUser makes blockerID hide blockedID's comments. Idempotent.
+	BlockUser(ctx context.Context, blockerID, blockedID string) error
+	UnblockUser(ctx context.Context, blockerID, blockedID string) error
+	// BlockedUsers lists the users blockerID has blocked.
+	BlockedUsers(ctx context.Context, blockerID string) ([]string, error)
 }
 
 // ReadModel is the materialised query view (Redis).

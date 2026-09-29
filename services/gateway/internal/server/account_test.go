@@ -168,3 +168,49 @@ func TestDeleteAccountNeedsASession(t *testing.T) {
 		t.Fatalf("nothing may be called without a session, got %v", got)
 	}
 }
+
+// Reporting and blocking are for signed-in users, and reach Interaction as
+// the token's user (never one the client names).
+func TestModerationRoutesNeedASessionAndCarryTheTokenUser(t *testing.T) {
+	b := &accountBackends{password: "x"}
+	gw, mgr := newAccountGateway(t, b)
+	tok, _, _ := mgr.Issue("alice")
+	routes := [][2]string{
+		{"POST", "/api/v1/comments/6f1c6d7e-0c3a-4f6e-9a55-0d6f4a3f6b11/report"},
+		{"GET", "/api/v1/blocks"},
+		{"PUT", "/api/v1/blocks/bob"},
+		{"DELETE", "/api/v1/blocks/bob"},
+	}
+	for _, r := range routes {
+		req, _ := http.NewRequest(r[0], gw.URL+r[1], nil)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s %s without a session: %d", r[0], r[1], res.StatusCode)
+		}
+	}
+	if got := b.log(); len(got) != 0 {
+		t.Fatalf("nothing may be called without a session, got %v", got)
+	}
+	for _, r := range routes {
+		req, _ := http.NewRequest(r[0], gw.URL+r[1], nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("X-User-Id", "mallory")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+	}
+	for _, c := range b.log() {
+		if !strings.HasSuffix(c, " alice") {
+			t.Errorf("call not made as the token's user: %q", c)
+		}
+	}
+	if n := len(b.log()); n != len(routes) {
+		t.Fatalf("%d calls reached Interaction, want %d: %v", n, len(routes), b.log())
+	}
+}

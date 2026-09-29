@@ -204,6 +204,15 @@ func (r *Repo) PurgeUser(ctx context.Context, userID string) ([]domain.RatingSta
 			return err
 		}
 
+		// Their reports and blocks, and blocks of them, go too. (Reports on
+		// their comments went with the comments: ON DELETE CASCADE.)
+		if _, err := tx.Exec(ctx, r.q(`DELETE FROM interaction.comment_reports WHERE reporter_id = $1`), userID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, r.q(`DELETE FROM interaction.user_blocks WHERE blocker_id = $1 OR blocked_id = $1`), userID); err != nil {
+			return err
+		}
+
 		_, err = tx.Exec(ctx,
 			r.q(`DELETE FROM interaction.outbox_events WHERE status = 'pending' AND payload ->> 'user_id' = $1`), userID)
 		return err

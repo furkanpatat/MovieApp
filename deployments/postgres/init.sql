@@ -109,6 +109,29 @@ CREATE INDEX IF NOT EXISTS comments_title_recent_idx
     ON interaction.comments (media_type, movie_id, occurred_at DESC);
 
 -- ---------------------------------------------------------------------------
+-- Moderation (App Store guideline 1.2 / Play UGC policy): people report a
+-- comment, and block a user whose comments they no longer want to see.
+-- Reports are reviewed by hand:
+--   SELECT c.event_id, c.user_id, c.body, count(*) AS reports
+--     FROM interaction.comment_reports r JOIN interaction.comments c ON c.event_id = r.comment_id
+--    GROUP BY 1, 2, 3 ORDER BY reports DESC;
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS interaction.comment_reports (
+    comment_id  UUID        NOT NULL REFERENCES interaction.comments (event_id) ON DELETE CASCADE,
+    reporter_id TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (comment_id, reporter_id)
+);
+
+CREATE TABLE IF NOT EXISTS interaction.user_blocks (
+    blocker_id TEXT        NOT NULL,
+    blocked_id TEXT        NOT NULL CHECK (blocker_id <> blocked_id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (blocker_id, blocked_id)
+);
+CREATE INDEX IF NOT EXISTS user_blocks_blocked_idx ON interaction.user_blocks (blocked_id);
+
+-- ---------------------------------------------------------------------------
 -- Transactional outbox. The HTTP write path only INSERTs here; the relay
 -- worker publishes pending rows to RabbitMQ and marks them published.
 -- Delivery is at-least-once: consumers are idempotent (see comments/ratings).
