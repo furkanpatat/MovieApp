@@ -18,6 +18,9 @@ type Config struct {
 	JWTSecret string        `env:"JWT_SECRET,notEmpty"`
 	JWTIssuer string        `env:"JWT_ISSUER" envDefault:"movieapp-auth"`
 	JWTTTL    time.Duration `env:"JWT_TTL" envDefault:"1h"`
+	// RefreshTTL is how long a refresh token (API clients' long session)
+	// lasts; each refresh rotates it and starts the clock again.
+	RefreshTTL time.Duration `env:"REFRESH_TTL" envDefault:"720h"`
 
 	// BcryptCost is the work factor; each +1 doubles the time to hash.
 	BcryptCost int `env:"BCRYPT_COST" envDefault:"12"`
@@ -40,6 +43,9 @@ func (c Config) Validate() error {
 	}
 	if c.JWTIssuer == "" {
 		errs = append(errs, errors.New("JWT_ISSUER must not be empty"))
+	}
+	if c.RefreshTTL <= 0 {
+		errs = append(errs, errors.New("REFRESH_TTL must be positive"))
 	}
 	if c.JWTTTL <= 0 {
 		errs = append(errs, errors.New("JWT_TTL must be positive"))

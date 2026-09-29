@@ -18,6 +18,7 @@ import (
 	"github.com/furkanpatat/movieapp/services/auth/internal/domain"
 	"github.com/furkanpatat/movieapp/services/auth/internal/password"
 	"github.com/furkanpatat/movieapp/services/auth/internal/service"
+	"github.com/furkanpatat/movieapp/services/auth/internal/testsupport"
 )
 
 const (
@@ -54,6 +55,17 @@ func (r *memRepo) FindByLogin(_ context.Context, login string) (domain.User, err
 	defer r.mu.Unlock()
 	for _, x := range r.users {
 		if strings.EqualFold(x.Username, login) || strings.EqualFold(x.Email, login) {
+			return x, nil
+		}
+	}
+	return domain.User{}, domain.ErrNotFound
+}
+
+func (r *memRepo) FindByID(_ context.Context, id string) (domain.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, x := range r.users {
+		if x.ID == id {
 			return x, nil
 		}
 	}
@@ -193,5 +205,111 @@ func TestInvalidCredentialsAreIndistinguishable(t *testing.T) {
 		if _, err := svc.Login(ctx, args[0], args[1]); !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("%v: got %v, want ErrInvalidInput", args, err)
 		}
+	}
+}
+
+// --- Refresh tokens ---------------------------------------------------------
+
+func newRefreshSvc(t *testing.T, ttl time.Duration) (*service.Auth, *testsupport.MemRefresh, string) {
+	t.Helper()
+	b, _ := password.NewBcrypt(bcrypt.MinCost)
+	store := testsupport.NewMemRefresh()
+	svc, err := service.New(&memRepo{}, b, jwtauth.NewManager(secret, issuer, time.Hour), quiet, service.WithRefresh(store, ttl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := svc.Register(context.Background(), "alice", "alice@example.com", "s3cret-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return svc, store, u.ID
+}
+
+func TestRefreshRotatesAndTheOldTokenIsSpent(t *testing.T) {
+	ctx := context.Background()
+	svc, _, userID := newRefreshSvc(t, time.Hour)
+	first, _, err := svc.IssueRefresh(ctx, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.Refresh(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RefreshToken == "" || res.RefreshToken == first || res.User.ID != userID || res.Token == "" {
+		t.Fatalf("bad refresh result: %+v", res)
+	}
+	sub, err := jwtauth.NewManager(secret, issuer, time.Hour).Verify(res.Token)
+	if err != nil || sub != userID {
+		t.Fatalf("access token: %q %v", sub, err)
+	}
+	if _, err := svc.Refresh(ctx, res.RefreshToken); err != nil {
+		t.Fatalf("the rotated token should work once: %v", err)
+	}
+}
+
+func TestReplayedRefreshTokenRevokesTheWholeFamily(t *testing.T) {
+	ctx := context.Background()
+	svc, _, userID := newRefreshSvc(t, time.Hour)
+	stolen, _, _ := svc.IssueRefresh(ctx, userID)
+	legit, err := svc.Refresh(ctx, stolen) // the owner refreshes
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The thief replays the old token: refused, and the family is revoked...
+	if _, err := svc.Refresh(ctx, stolen); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("replay: got %v, want ErrInvalidToken", err)
+	}
+	// ...so the newer token is dead too: everyone signs in again.
+	if _, err := svc.Refresh(ctx, legit.RefreshToken); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("after replay: got %v, want ErrInvalidToken", err)
+	}
+}
+
+func TestOtherSignInsSurviveARevokedFamily(t *testing.T) {
+	ctx := context.Background()
+	svc, _, userID := newRefreshSvc(t, time.Hour)
+	phone, _, _ := svc.IssueRefresh(ctx, userID)
+	tablet, _, _ := svc.IssueRefresh(ctx, userID)
+	if err := svc.RevokeRefresh(ctx, phone); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Refresh(ctx, phone); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("revoked: got %v", err)
+	}
+	if _, err := svc.Refresh(ctx, tablet); err != nil {
+		t.Fatalf("another sign-in must be unaffected: %v", err)
+	}
+}
+
+func TestExpiredAndUnknownRefreshTokensAreRejected(t *testing.T) {
+	ctx := context.Background()
+	svc, _, userID := newRefreshSvc(t, -time.Minute) // born expired
+	tok, _, _ := svc.IssueRefresh(ctx, userID)
+	for name, token := range map[string]string{"expired": tok, "unknown": "nope", "empty": ""} {
+		if _, err := svc.Refresh(ctx, token); !errors.Is(err, domain.ErrInvalidToken) {
+			t.Errorf("%s: got %v, want ErrInvalidToken", name, err)
+		}
+	}
+}
+
+func TestRefreshTokensAreStoredOnlyAsHashes(t *testing.T) {
+	ctx := context.Background()
+	svc, store, userID := newRefreshSvc(t, time.Hour)
+	tok, _, _ := svc.IssueRefresh(ctx, userID)
+	if len(store.Rows) != 1 {
+		t.Fatalf("rows: %d", len(store.Rows))
+	}
+	for key := range store.Rows {
+		if strings.Contains(key, tok) || len(key) != 64 { // hex of a SHA-256
+			t.Fatalf("stored key %q is not a hash of the token", key)
+		}
+	}
+}
+
+func TestRefreshIsOffUnlessEnabled(t *testing.T) {
+	svc, _, _ := newSvc(t)
+	if _, err := svc.Refresh(context.Background(), "anything"); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("got %v", err)
 	}
 }

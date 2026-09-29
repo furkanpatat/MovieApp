@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API_URL } from "@/lib/api";
 import { SITE } from "@/lib/party";
+import { freshToken } from "@/lib/session";
 import { useAuth } from "@/store/auth";
 import type { ConnectionStatus, FeedItem, PlaybackAction, PlaybackState, ServerEvent } from "@/types/watch-party";
 
@@ -30,13 +31,18 @@ export function useWatchParty(room: string) {
 
   const push = useCallback((item: FeedItem) => setFeed((f) => [...f, item].slice(-MAX_FEED)), []);
 
-  // Opens the socket; state changes only in its callbacks.
-  const open = useCallback(() => {
-    if (!token || (socket.current && socket.current.readyState <= WebSocket.OPEN)) return;
+  // Opens the socket (false: no usable session); state changes only in
+  // its callbacks and the caller's.
+  const open = useCallback(async (): Promise<boolean> => {
+    if (!token) return false;
+    if (socket.current && socket.current.readyState <= WebSocket.OPEN) return true;
+    // The handshake needs a live token (the socket then stays open).
+    const live = await freshToken();
+    if (!live) return false;
     const url = API_URL.replace(/^http/, "ws") + `/api/v1/watch-party/rooms/${room}/ws`;
     // React Native's WebSocket takes headers as a third argument.
     const ws = new (WebSocket as unknown as new (u: string, p: null, o: { headers: Record<string, string> }) => WebSocket)(url, null, {
-      headers: { Authorization: `Bearer ${token}`, Origin: SITE },
+      headers: { Authorization: `Bearer ${live}`, Origin: SITE },
     });
     socket.current = ws;
     const current = () => socket.current === ws;
@@ -87,18 +93,19 @@ export function useWatchParty(room: string) {
       setStatus((s) => (s === "error" ? s : "closed"));
       socket.current = null;
     };
+    return true;
   }, [room, token, userId, push]);
 
   /** Reconnect (the user's button). */
   const connect = useCallback(() => {
     if (!token) return setStatus("error");
     setStatus("connecting");
-    open();
+    void open().then((ok) => !ok && setStatus("error"));
   }, [token, open]);
 
   // Join on open; leave (close the socket) on the way out.
   useEffect(() => {
-    open();
+    void open().then((ok) => !ok && setStatus("error"));
     return () => {
       const ws = socket.current;
       socket.current = null;

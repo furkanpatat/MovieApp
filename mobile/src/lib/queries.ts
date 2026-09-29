@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { toSession, type SessionResponse } from "@/lib/session";
 import { useAuth } from "@/store/auth";
 import type { ListResponse, UserRating, WatchedItem, WatchlistItem } from "@/types/library";
 import type { MediaType, Movie, MoviePage } from "@/types/movie";
@@ -46,11 +47,6 @@ export function useSearch(mode: MediaType, q: string) {
   });
 }
 
-interface LoginResponse {
-  access_token: string;
-  expires_in: number;
-  user: { id: string; username: string };
-}
 
 /** Sign in (or sign up, then in): the token goes to the Keychain. */
 export function useSignIn() {
@@ -60,27 +56,62 @@ export function useSignIn() {
       if (input.register) {
         await api("/api/v1/auth/register", { method: "POST", auth: false, body: { ...input.register, password: input.password } });
       }
-      return api<LoginResponse>("/api/v1/auth/login", {
+      // refresh: a ~30-day refresh token too, so the phone stays signed in.
+      return api<SessionResponse>("/api/v1/auth/login", {
         method: "POST",
         auth: false,
-        body: { login: input.register?.username ?? input.login, password: input.password },
+        body: { login: input.register?.username ?? input.login, password: input.password, refresh: true },
       });
     },
-    onSuccess: (r) =>
-      signIn({ token: r.access_token, userId: r.user.id, username: r.user.username, expiresAt: Date.now() + r.expires_in * 1000 }),
+    onSuccess: (r) => signIn(toSession(r)),
   });
 }
 
-/** The Discover feed, page after page: GET /api/v1/discover/{movies,tv}
- *  (genre 0 = popular). */
-export function useDiscoverFeed(mode: MediaType, genre = 0) {
+/** TMDB caps /discover at 500 pages. */
+const DISCOVER_MAX_PAGE = 500;
+/** A feed starts on one of the first pages (every genre has this many). */
+const DISCOVER_START_PAGES = 8;
+
+/**
+ * The Discover feed (GET /api/v1/discover/{movies,tv}; genre 0 = popular),
+ * as on the web: it starts on a random page and walks on from there,
+ * wrapping at the end, and each page is shuffled, so the feed isn't the
+ * same every time while the catalog still serves cached pages. `seed`
+ * fixes the start and the order until the user asks for a new feed.
+ */
+export function useDiscoverFeed(mode: MediaType, seed: number, genre = 0) {
   return useInfiniteQuery({
-    queryKey: ["feed", mode, genre],
-    queryFn: ({ pageParam }) => api<MoviePage>(`/api/v1/discover/${seg(mode)}?genre=${genre}&page=${pageParam}`, { auth: false }),
-    initialPageParam: 1,
-    getNextPageParam: (last) => (last.page < last.total_pages ? last.page + 1 : undefined),
-    staleTime: 5 * 60_000,
+    queryKey: ["feed", mode, genre, seed],
+    queryFn: async ({ pageParam }) => {
+      const page = await api<MoviePage>(`/api/v1/discover/${seg(mode)}?genre=${genre}&page=${pageParam}`, { auth: false });
+      return { ...page, results: shuffle(page.results, seed + page.page) };
+    },
+    initialPageParam: 1 + (seed % DISCOVER_START_PAGES),
+    getNextPageParam: (last, pages) => {
+      const total = Math.min(last.total_pages, DISCOVER_MAX_PAGE);
+      if (pages.length >= total) return undefined; // seen every page
+      return last.page >= total ? 1 : last.page + 1;
+    },
+    staleTime: 10 * 60_000,
   });
+}
+
+/** Deterministic Fisher-Yates (mulberry32), so a refetch keeps the order. */
+function shuffle<T>(items: T[], seed: number): T[] {
+  const out = [...items];
+  let a = seed >>> 0;
+  const rand = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 /** The signed-in user's ratings (GET /api/v1/ratings): what they liked. */

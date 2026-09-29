@@ -3,15 +3,20 @@ import { create } from "zustand";
 
 const KEY = "kinocut.session";
 
-interface Session {
+export interface Session {
+  /** The access token: a short-lived JWT (about an hour). */
   token: string;
+  /** Exchanged for the next access token (lib/session.ts); ~30 days. */
+  refreshToken?: string;
   userId: string;
   username: string;
-  /** Unix ms; the gateway's JWTs are short-lived. */
+  /** Unix ms. */
   expiresAt: number;
+  refreshExpiresAt?: number;
 }
 
 interface AuthState {
+  session: Session | null;
   token: string | null;
   userId: string | null;
   username: string | null;
@@ -19,14 +24,19 @@ interface AuthState {
   ready: boolean;
   restore: () => Promise<void>;
   signIn: (s: Session) => Promise<void>;
+  /** Forget the session on this device (lib/session.ts logout also revokes it). */
   signOut: () => Promise<void>;
 }
 
+const usable = (s: Session) => s.expiresAt > Date.now() || (!!s.refreshToken && (s.refreshExpiresAt ?? 0) > Date.now());
+
 /**
- * The session. The token lives in the Keychain (iOS) / Keystore (Android)
- * via expo-secure-store, never in plain storage.
+ * The session, kept in the Keychain (iOS) / Keystore (Android) via
+ * expo-secure-store, never in plain storage. It survives the access token's
+ * expiry while its refresh token is good.
  */
 export const useAuth = create<AuthState>((set) => ({
+  session: null,
   token: null,
   userId: null,
   username: null,
@@ -35,7 +45,7 @@ export const useAuth = create<AuthState>((set) => ({
     try {
       const raw = await SecureStore.getItemAsync(KEY);
       const s = raw ? (JSON.parse(raw) as Session) : null;
-      if (s && s.expiresAt > Date.now()) set({ token: s.token, userId: s.userId, username: s.username });
+      if (s && usable(s)) set({ session: s, token: s.token, userId: s.userId, username: s.username });
       else if (s) await SecureStore.deleteItemAsync(KEY);
     } catch {
       // Unreadable: start signed out.
@@ -44,10 +54,10 @@ export const useAuth = create<AuthState>((set) => ({
   },
   signIn: async (s) => {
     await SecureStore.setItemAsync(KEY, JSON.stringify(s));
-    set({ token: s.token, userId: s.userId, username: s.username });
+    set({ session: s, token: s.token, userId: s.userId, username: s.username });
   },
   signOut: async () => {
     await SecureStore.deleteItemAsync(KEY);
-    set({ token: null, userId: null, username: null });
+    set({ session: null, token: null, userId: null, username: null });
   },
 }));

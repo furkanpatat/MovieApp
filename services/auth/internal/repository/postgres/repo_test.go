@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/furkanpatat/movieapp/services/auth/internal/domain"
 	"github.com/furkanpatat/movieapp/services/auth/internal/repository/postgres"
@@ -88,5 +89,101 @@ func TestSchemaRejectsBadData(t *testing.T) {
 	}
 	if _, err := repo.Create(context.Background(), domain.User{Username: "okname", Email: strings.Repeat("a", 250) + "@x.io", PasswordHash: "h"}); err == nil {
 		t.Fatal("over-long email accepted")
+	}
+}
+
+// --- Refresh tokens ---------------------------------------------------------
+
+func hash(b byte) []byte { return []byte(strings.Repeat(string(rune(b)), 32)) }
+
+const family = "7f2c1d3e-0b4a-4c5d-8e9f-a1b2c3d4e5f6"
+
+func newUser(t *testing.T, repo *postgres.Repo) string {
+	t.Helper()
+	u, err := repo.Create(context.Background(), domain.User{Username: "alice", Email: "alice@example.com", PasswordHash: "$2a$04$hash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u.ID
+}
+
+func TestRefreshRotationAndReuse(t *testing.T) {
+	repo, _ := newRepo(t)
+	ctx := context.Background()
+	userID := newUser(t, repo)
+	exp := time.Now().Add(time.Hour)
+	if err := repo.SaveRefresh(ctx, userID, family, hash('a'), exp); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.RotateRefresh(ctx, hash('a'), hash('b'), exp)
+	if err != nil || got != userID {
+		t.Fatalf("rotate: %q %v", got, err)
+	}
+	// 'a' again: a replay. The family (including 'b') is revoked.
+	if _, err := repo.RotateRefresh(ctx, hash('a'), hash('c'), exp); !errors.Is(err, domain.ErrTokenReused) {
+		t.Fatalf("replay: got %v", err)
+	}
+	if _, err := repo.RotateRefresh(ctx, hash('b'), hash('d'), exp); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("after replay: got %v", err)
+	}
+	if _, err := repo.RotateRefresh(ctx, hash('z'), hash('y'), exp); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("unknown: got %v", err)
+	}
+	if u, err := repo.FindByID(ctx, userID); err != nil || u.Username != "alice" {
+		t.Fatalf("find by id: %+v %v", u, err)
+	}
+}
+
+func TestExpiredAndRevokedRefreshTokens(t *testing.T) {
+	repo, _ := newRepo(t)
+	ctx := context.Background()
+	userID := newUser(t, repo)
+	if err := repo.SaveRefresh(ctx, userID, family, hash('e'), time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.RotateRefresh(ctx, hash('e'), hash('f'), time.Now().Add(time.Hour)); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("expired: got %v", err)
+	}
+	other := "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+	if err := repo.SaveRefresh(ctx, userID, other, hash('g'), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RevokeRefresh(ctx, hash('g')); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.RotateRefresh(ctx, hash('g'), hash('h'), time.Now().Add(time.Hour)); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("revoked: got %v", err)
+	}
+}
+
+// Ten requests race with the same token: the row lock lets exactly one
+// rotate; the rest see a spent token (and revoke the family).
+func TestConcurrentRefreshesRotateExactlyOnce(t *testing.T) {
+	repo, _ := newRepo(t)
+	ctx := context.Background()
+	userID := newUser(t, repo)
+	exp := time.Now().Add(time.Hour)
+	if err := repo.SaveRefresh(ctx, userID, family, hash('r'), exp); err != nil {
+		t.Fatal(err)
+	}
+	var (
+		wg sync.WaitGroup
+		mu sync.Mutex
+		ok int
+	)
+	for i := range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := repo.RotateRefresh(ctx, hash('r'), hash(byte('A'+i)), exp); err == nil {
+				mu.Lock()
+				ok++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if ok != 1 {
+		t.Fatalf("%d rotations succeeded, want exactly 1", ok)
 	}
 }

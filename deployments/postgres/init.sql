@@ -19,6 +19,23 @@ CREATE TABLE IF NOT EXISTS auth.users (
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON auth.users (lower(username));
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx    ON auth.users (lower(email));
 
+-- Refresh tokens (long sessions for API clients such as the mobile app).
+-- Only a SHA-256 of each token is stored. A family is one sign-in: each
+-- refresh consumes its token (used_at) and adds the next; a consumed token
+-- presented again means a stolen copy, and revokes the whole family.
+CREATE TABLE IF NOT EXISTS auth.refresh_tokens (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID        NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+    family_id   UUID        NOT NULL,
+    token_hash  BYTEA       NOT NULL UNIQUE CHECK (length(token_hash) = 32),
+    expires_at  TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    used_at     TIMESTAMPTZ,
+    revoked_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS refresh_tokens_family_idx ON auth.refresh_tokens (family_id);
+CREATE INDEX IF NOT EXISTS refresh_tokens_user_idx   ON auth.refresh_tokens (user_id);
+
 -- ---------------------------------------------------------------------------
 -- Interaction service: write-side source of truth (CQRS "command" store).
 -- The Redis read model is derived from these tables and can be rebuilt.

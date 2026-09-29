@@ -7,6 +7,7 @@ import { API_URL } from "@/lib/api";
 import { READABLE_WIDTH } from "@/lib/layout";
 import { useLocale, useT } from "@/i18n";
 import { useLibrary, useMyRatings } from "@/lib/queries";
+import { logout } from "@/lib/session";
 import { useAuth } from "@/store/auth";
 import { colors, radius } from "@/theme";
 import type { Movie } from "@/types/movie";
@@ -17,7 +18,7 @@ const SITE = "https://kinora.duckdns.org";
 /** Your account: what you watched (public on the web profile), My List,
  *  likes, and a link to share your profile. */
 export default function Profile() {
-  const { username, signOut } = useAuth();
+  const username = useAuth((s) => s.username);
   const { t } = useT();
   const insets = useSafeAreaInsets();
   const { list, watched } = useLibrary();
@@ -73,7 +74,7 @@ export default function Profile() {
       {!list.isPending && listMovies.length === 0 && <Text style={styles.empty}>{t.profile.listEmpty}</Text>}
 
       <LanguagePicker />
-      <Pressable onPress={() => void signOut()} style={({ pressed }) => [styles.secondary, pressed && { opacity: 0.8 }]}>
+      <Pressable onPress={() => void logout()} style={({ pressed }) => [styles.secondary, pressed && { opacity: 0.8 }]}>
         <Text style={styles.secondaryText}>{t.profile.signOut}</Text>
       </Pressable>
       <Text style={styles.server}>{API_URL.replace(/^https?:\/\//, "")}</Text>
