@@ -138,3 +138,7 @@ func (m *Model) Init(ctx context.Context, s domain.RatingStats, recent []domain.
 	}
 	return initRating.Run(ctx, m.rdb, []string{ratingKey(s.Title)}, s.Version, s.TotalScore, s.VoteCount).Err()
 }
+
+func (m *Model) Delete(ctx context.Context, t domain.Title) error {
+	return m.rdb.Del(ctx, ratingKey(t), commentsKey(t)).Err()
+}

@@ -10,6 +10,7 @@ export const en = {
     privacy: "Privacy",
   },
   common: {
+    cancel: "Cancel",
     tryAgain: "Try again",
     signIn: "Sign in",
     close: "Close",
@@ -290,6 +291,14 @@ export const en = {
     recentFirst: "most recently added first",
   },
   profile: {
+    deleteAccount: "Delete account",
+    deleteWarning: "This permanently deletes your account, your ratings, comments, list and watched titles. It can't be undone.",
+    deleteConfirm: "Enter your password to confirm",
+    deleteForever: "Delete permanently",
+    deleting: "Deleting…",
+    deleted: "Your account has been deleted.",
+    deleteWrongPassword: "That password isn't right.",
+    deleteFailed: "Couldn't delete your account. Please try again.",
     inMyList: "In My List",
     ratings: "Ratings",
     recentRatings: "Recent ratings",

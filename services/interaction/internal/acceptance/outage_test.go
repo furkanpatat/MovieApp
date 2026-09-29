@@ -81,7 +81,7 @@ func TestBrokerOutageDoesNotLoseWrites(t *testing.T) {
 	br := &broker{proj: service.NewProjector(repo, rm, 20, quiet)}
 	br.down.Store(true) // <-- RabbitMQ is DOWN from the start
 
-	h := transport.NewHandler(service.NewCommand(repo), service.NewQuery(repo, rm, 20, quiet), nil, quiet)
+	h := transport.NewHandler(service.NewCommand(repo), service.NewQuery(repo, rm, 20, quiet), nil, nil, quiet)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -155,7 +155,7 @@ func TestRedeliveryAfterRelayCrashIsHarmless(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rm := readmodel.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), 20)
 	br := &broker{proj: service.NewProjector(repo, rm, 20, quiet)}
-	h := transport.NewHandler(service.NewCommand(repo), service.NewQuery(repo, rm, 20, quiet), nil, quiet)
+	h := transport.NewHandler(service.NewCommand(repo), service.NewQuery(repo, rm, 20, quiet), nil, nil, quiet)
 
 	post(t, h, "a", "/api/v1/movies/7/rate", `{"score":8}`)
 	post(t, h, "a", "/api/v1/movies/7/comment", `{"text":"once"}`)

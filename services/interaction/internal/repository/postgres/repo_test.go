@@ -177,3 +177,46 @@ func TestSeriesAndMoviesWithTheSameIDStayApart(t *testing.T) {
 		t.Fatalf("the movie got the series' comment: %+v", got)
 	}
 }
+
+// Account deletion: the user's ratings come off the aggregate (others stay),
+// their comments go, and the stale titles are reported.
+func TestPurgeUser(t *testing.T) {
+	repo, movie := setup(t)
+	ctx := context.Background()
+	user := "purge-" + uuid.NewString()
+	t0 := time.Now().UTC().Truncate(time.Millisecond)
+	for _, e := range []domain.RatingSubmitted{rate(movie, user, 9, t0), rate(movie, "other", 5, t0)} {
+		if _, err := repo.SaveRating(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []domain.CommentAdded{
+		{EventID: uuid.NewString(), MovieID: movie, UserID: user, Text: "mine", OccurredAt: t0},
+		{EventID: uuid.NewString(), MovieID: movie, UserID: "other", Text: "theirs", OccurredAt: t0},
+	} {
+		if err := repo.SaveComment(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, _ := repo.GetStats(ctx, domain.Title{Media: domain.MediaMovie, ID: movie})
+
+	touched, err := repo.PurgeUser(ctx, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(touched) != 1 || touched[0].Title.ID != movie {
+		t.Fatalf("touched: %+v", touched)
+	}
+	after, _ := repo.GetStats(ctx, domain.Title{Media: domain.MediaMovie, ID: movie})
+	if after.TotalScore != 5 || after.VoteCount != 1 || after.Version <= before.Version {
+		t.Fatalf("stats after purge: %+v (before %+v)", after, before)
+	}
+	comments, _ := repo.RecentComments(ctx, domain.Title{Media: domain.MediaMovie, ID: movie}, 10)
+	if len(comments) != 1 || comments[0].UserID != "other" {
+		t.Fatalf("comments after purge: %+v", comments)
+	}
+	// Idempotent: a retried purge finds nothing.
+	if again, err := repo.PurgeUser(ctx, user); err != nil || len(again) != 0 {
+		t.Fatalf("second purge: %+v %v", again, err)
+	}
+}

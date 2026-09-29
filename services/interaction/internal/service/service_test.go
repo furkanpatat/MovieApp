@@ -325,3 +325,7 @@ func TestQueryInvalidMovie(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func (m *memRepo) PurgeUser(ctx context.Context, userID string) ([]domain.RatingStats, error) {
+	return nil, nil
+}

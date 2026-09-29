@@ -17,15 +17,16 @@ import (
 const maxBody = 16 << 10
 
 type Handler struct {
-	cmd   *service.Command
-	query *service.Query
-	ready func() bool
-	log   *slog.Logger
+	cmd     *service.Command
+	query   *service.Query
+	account *service.Account
+	ready   func() bool
+	log     *slog.Logger
 }
 
 // NewHandler builds the router. cmd or query may be nil to serve only one side.
-func NewHandler(cmd *service.Command, query *service.Query, ready func() bool, log *slog.Logger) http.Handler {
-	h := &Handler{cmd: cmd, query: query, ready: ready, log: log}
+func NewHandler(cmd *service.Command, query *service.Query, account *service.Account, ready func() bool, log *slog.Logger) http.Handler {
+	h := &Handler{cmd: cmd, query: query, account: account, ready: ready, log: log}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
@@ -45,6 +46,9 @@ func NewHandler(cmd *service.Command, query *service.Query, ready func() bool, l
 		if query != nil {
 			mux.HandleFunc("GET "+prefix+"{id}/interactions", h.interactions(media))
 		}
+	}
+	if account != nil {
+		mux.HandleFunc("POST /api/v1/account/purge", h.purgeUser())
 	}
 	return mux
 }
@@ -183,4 +187,19 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (h *Handler) purgeUser() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userID(w, r)
+		if !ok {
+			return
+		}
+		if err := h.account.PurgeUser(r.Context(), uid); err != nil {
+			h.log.Error("failed to purge user", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "temporarily unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "purged"})
+	}
 }

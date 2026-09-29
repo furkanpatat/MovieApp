@@ -61,6 +61,18 @@ func (r *memRepo) FindByLogin(_ context.Context, login string) (domain.User, err
 	return domain.User{}, domain.ErrNotFound
 }
 
+func (r *memRepo) Delete(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, x := range r.users {
+		if x.ID == id {
+			r.users = append(r.users[:i], r.users[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
 func (r *memRepo) FindByID(_ context.Context, id string) (domain.User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

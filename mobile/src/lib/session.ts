@@ -84,3 +84,31 @@ export async function logout(): Promise<void> {
     // Offline: the token still expires on its own.
   }
 }
+
+/** A failed account deletion; wrongPassword: the password was refused. */
+export class AccountDeletionError extends Error {
+  constructor(public wrongPassword: boolean) {
+    super(wrongPassword ? "wrong password" : "account deletion failed");
+  }
+}
+
+/**
+ * Permanently deletes the user's account and data (the gateway checks the
+ * password, then removes it across the services), then the local session.
+ */
+export async function deleteAccount(password: string): Promise<void> {
+  const token = await freshToken();
+  if (!token) throw new AccountDeletionError(false);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/v1/account/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ password }),
+    });
+  } catch {
+    throw new AccountDeletionError(false);
+  }
+  if (!res.ok) throw new AccountDeletionError(res.status === 403); // 403: the password was wrong
+  await useAuth.getState().signOut();
+}

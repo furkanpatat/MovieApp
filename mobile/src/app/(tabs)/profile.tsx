@@ -1,8 +1,10 @@
 import { Image } from "expo-image";
 import { router } from "expo-router";
+import { useState } from "react";
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { DeleteAccountModal } from "@/components/delete-account-modal";
 import { TitleRow } from "@/components/title-row";
 import { READABLE_WIDTH } from "@/lib/layout";
 import * as WebBrowser from "expo-web-browser";
@@ -25,6 +27,7 @@ export default function Profile() {
   const insets = useSafeAreaInsets();
   const { list, watched } = useLibrary();
   const ratings = useMyRatings();
+  const [deleteModal, setDeleteModal] = useState(false);
 
   if (!username) {
     return (
@@ -77,10 +80,16 @@ export default function Profile() {
       {!list.isPending && listMovies.length === 0 && <Text style={styles.empty}>{t.profile.listEmpty}</Text>}
 
       <LanguagePicker />
-      <Pressable onPress={() => void logout()} style={({ pressed }) => [styles.secondary, pressed && { opacity: 0.8 }]}>
-        <Text style={styles.secondaryText}>{t.profile.signOut}</Text>
-      </Pressable>
+      <View style={styles.actionButtons}>
+        <Pressable onPress={() => void logout()} style={({ pressed }) => [styles.secondary, pressed && { opacity: 0.8 }]}>
+          <Text style={styles.secondaryText}>{t.profile.signOut}</Text>
+        </Pressable>
+        <Pressable onPress={() => setDeleteModal(true)} style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.8 }]}>
+          <Text style={styles.deleteText}>{t.profile.deleteAccount}</Text>
+        </Pressable>
+      </View>
       <Attribution />
+      <DeleteAccountModal visible={deleteModal} onClose={() => setDeleteModal(false)} />
     </ScrollView>
   );
 }
@@ -142,8 +151,11 @@ const styles = StyleSheet.create({
   statLabel: { color: colors.mute, fontSize: 12, marginTop: 2 },
   primary: { marginTop: 18, backgroundColor: colors.gold, borderRadius: 999, paddingVertical: 12, alignSelf: "stretch", alignItems: "center" },
   primaryText: { color: colors.onGold, fontWeight: "800", fontSize: 16 },
-  secondary: { marginTop: 28, marginHorizontal: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingVertical: 12, alignItems: "center" },
+  actionButtons: { marginTop: 28, marginHorizontal: 16, gap: 12 },
+  secondary: { borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingVertical: 12, alignItems: "center" },
   secondaryText: { color: colors.text, fontWeight: "700" },
+  deleteBtn: { borderRadius: 999, paddingVertical: 10, alignItems: "center" },
+  deleteText: { color: colors.danger, fontWeight: "700" },
   empty: { color: colors.dim, marginHorizontal: 16, marginTop: -4 },
   langRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginHorizontal: 16, marginTop: 24 },
   langLabel: { color: colors.text, fontWeight: "700", fontSize: 16 },

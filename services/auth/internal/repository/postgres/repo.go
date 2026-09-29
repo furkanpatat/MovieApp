@@ -139,3 +139,14 @@ func (r *Repo) RevokeRefresh(ctx context.Context, hash []byte) error {
 		      WHERE family_id = (SELECT family_id FROM auth.refresh_tokens WHERE token_hash = $1) AND revoked_at IS NULL`), hash)
 	return err
 }
+
+func (r *Repo) Delete(ctx context.Context, id string) error {
+	tag, err := r.pool.Exec(ctx, r.q(`DELETE FROM auth.users WHERE id::text = $1`), id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}

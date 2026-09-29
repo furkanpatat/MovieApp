@@ -130,3 +130,83 @@ func (r *Repo) RecentComments(ctx context.Context, t domain.Title, limit int) ([
 	}
 	return out, rows.Err()
 }
+
+// PurgeUser removes everything a user wrote (account deletion): their
+// ratings (taken off each title's aggregate), their comments and their
+// events still waiting in the outbox (which would bring them back). It
+// returns the titles whose read model is now stale. Stats rows are locked in
+// title order, as SaveRating locks one at a time, so purges can't deadlock.
+func (r *Repo) PurgeUser(ctx context.Context, userID string) ([]domain.RatingStats, error) {
+	var touched []domain.RatingStats
+	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		touched = touched[:0]
+		rows, err := tx.Query(ctx,
+			r.q(`SELECT media_type, movie_id, score FROM interaction.ratings
+			  WHERE user_id = $1 ORDER BY media_type, movie_id FOR UPDATE`), userID)
+		if err != nil {
+			return err
+		}
+		type rating struct {
+			t     domain.Title
+			score int
+		}
+		var ratings []rating
+		for rows.Next() {
+			var x rating
+			if err := rows.Scan(&x.t.Media, &x.t.ID, &x.score); err != nil {
+				rows.Close()
+				return err
+			}
+			ratings = append(ratings, x)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		seen := map[domain.Title]bool{}
+		for _, x := range ratings {
+			s := domain.RatingStats{Title: x.t}
+			err := tx.QueryRow(ctx,
+				r.q(`UPDATE interaction.movie_rating_stats
+				    SET total_score = total_score - $3, vote_count = vote_count - 1, version = version + 1, updated_at = now()
+				  WHERE media_type = $1 AND movie_id = $2
+				  RETURNING total_score, vote_count, version`),
+				x.t.Media, x.t.ID, x.score).Scan(&s.TotalScore, &s.VoteCount, &s.Version)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			touched = append(touched, s)
+			seen[x.t] = true
+		}
+		if _, err := tx.Exec(ctx, r.q(`DELETE FROM interaction.ratings WHERE user_id = $1`), userID); err != nil {
+			return err
+		}
+
+		crows, err := tx.Query(ctx,
+			r.q(`DELETE FROM interaction.comments WHERE user_id = $1 RETURNING media_type, movie_id`), userID)
+		if err != nil {
+			return err
+		}
+		for crows.Next() {
+			var t domain.Title
+			if err := crows.Scan(&t.Media, &t.ID); err != nil {
+				crows.Close()
+				return err
+			}
+			if !seen[t] {
+				seen[t] = true
+				touched = append(touched, domain.RatingStats{Title: t})
+			}
+		}
+		crows.Close()
+		if err := crows.Err(); err != nil {
+			return err
+		}
+
+		_, err = tx.Exec(ctx,
+			r.q(`DELETE FROM interaction.outbox_events WHERE status = 'pending' AND payload ->> 'user_id' = $1`), userID)
+		return err
+	})
+	return touched, err
+}

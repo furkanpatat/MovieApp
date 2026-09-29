@@ -178,6 +178,9 @@ type Repository interface {
 	SaveComment(ctx context.Context, e CommentAdded) error
 	GetStats(ctx context.Context, t Title) (RatingStats, error)
 	RecentComments(ctx context.Context, t Title, limit int) ([]Comment, error)
+	// PurgeUser deletes all ratings, comments, and unpublished events for a user.
+	// It decrements the stats of affected movies and returns their updated stats.
+	PurgeUser(ctx context.Context, userID string) ([]RatingStats, error)
 }
 
 // ReadModel is the materialised query view (Redis).
@@ -192,6 +195,8 @@ type ReadModel interface {
 	// Init builds the model from source-of-truth data. It never overwrites a
 	// newer aggregate (by Version) and merges comments idempotently.
 	Init(ctx context.Context, s RatingStats, recent []Comment) error
+	// Delete removes the materialised view, forcing a rebuild on the next read.
+	Delete(ctx context.Context, t Title) error
 }
 
 // --- Transactional outbox ---

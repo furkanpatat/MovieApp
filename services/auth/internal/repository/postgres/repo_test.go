@@ -187,3 +187,24 @@ func TestConcurrentRefreshesRotateExactlyOnce(t *testing.T) {
 		t.Fatalf("%d rotations succeeded, want exactly 1", ok)
 	}
 }
+
+func TestDeleteCascadesToRefreshTokens(t *testing.T) {
+	repo, _ := newRepo(t)
+	ctx := context.Background()
+	userID := newUser(t, repo)
+	if err := repo.SaveRefresh(ctx, userID, family, hash('x'), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Delete(ctx, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.FindByID(ctx, userID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("user still there: %v", err)
+	}
+	if _, err := repo.RotateRefresh(ctx, hash('x'), hash('y'), time.Now().Add(time.Hour)); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("refresh token outlived its user: %v", err)
+	}
+	if err := repo.Delete(ctx, userID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("second delete: %v", err)
+	}
+}

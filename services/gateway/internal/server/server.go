@@ -142,6 +142,8 @@ func New(d Deps) http.Handler {
 	api.Handle("GET /api/v1/watched", requireAuth(catalog))
 	api.Handle("POST /api/v1/watched", requireAuth(catalog))
 	api.Handle("DELETE /api/v1/watched/{movie_id}", requireAuth(catalog))
+	// Account orchestration
+	api.Handle("POST /api/v1/account/delete", requireAuth(g.deleteAccount()))
 	// Public profiles: anyone may see what a user watched.
 	api.Handle("GET /api/v1/users/{username}/watched", catalog)
 	// AI assistant: signed-in only (an LLM call costs money per request),

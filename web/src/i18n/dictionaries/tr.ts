@@ -11,6 +11,7 @@ export const tr: Dictionary = {
     privacy: "Gizlilik",
   },
   common: {
+    cancel: "Vazgeç",
     tryAgain: "Tekrar dene",
     signIn: "Giriş yap",
     close: "Kapat",
@@ -289,6 +290,14 @@ export const tr: Dictionary = {
     recentFirst: "en son eklenen en üstte",
   },
   profile: {
+    deleteAccount: "Hesabı sil",
+    deleteWarning: "Bu işlem hesabını, puanlarını, yorumlarını, listeni ve izlediklerini kalıcı olarak siler. Geri alınamaz.",
+    deleteConfirm: "Onaylamak için şifreni gir",
+    deleteForever: "Kalıcı olarak sil",
+    deleting: "Siliniyor…",
+    deleted: "Hesabın silindi.",
+    deleteWrongPassword: "Şifre yanlış.",
+    deleteFailed: "Hesabın silinemedi. Lütfen tekrar dene.",
     inMyList: "Listemde",
     ratings: "Puanlar",
     recentRatings: "Son puanların",

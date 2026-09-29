@@ -46,6 +46,16 @@ func (r *memRepo) FindByLogin(_ context.Context, l string) (domain.User, error) 
 	return domain.User{}, domain.ErrNotFound
 }
 
+func (r *memRepo) Delete(_ context.Context, id string) error {
+	for i, x := range r.users {
+		if x.ID == id {
+			r.users = append(r.users[:i], r.users[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
 func (r *memRepo) FindByID(_ context.Context, id string) (domain.User, error) {
 	for _, x := range r.users {
 		if x.ID == id {
@@ -270,5 +280,48 @@ func TestLogoutRevokesTheRefreshToken(t *testing.T) {
 	}
 	if rec := post(h, "/api/v1/auth/refresh", `{"refresh_token":"`+tok+`"}`); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("after logout: status %d", rec.Code)
+	}
+}
+
+func do(h http.Handler, method, path, body, userID string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if userID != "" {
+		req.Header.Set("X-User-Id", userID)
+	}
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestAccountEndpointsNeedTheGatewaysUserID(t *testing.T) {
+	h := server(t)
+	post(h, "/api/v1/auth/register", registerBody)
+	if rec := do(h, "POST", "/api/v1/auth/password/verify", `{"password":"s3cret-password"}`, ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("verify without X-User-Id: %d", rec.Code)
+	}
+	if rec := do(h, "DELETE", "/api/v1/auth/account", "", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("delete without X-User-Id: %d", rec.Code)
+	}
+}
+
+func TestDeleteAccount(t *testing.T) {
+	h := server(t)
+	post(h, "/api/v1/auth/register", registerBody)
+	userID := session(t, post(h, "/api/v1/auth/login", `{"login":"alice","password":"s3cret-password"}`))["user"].(map[string]any)["id"].(string)
+	if rec := do(h, "POST", "/api/v1/auth/password/verify", `{"password":"wrong-password"}`, userID); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong password: %d", rec.Code)
+	}
+	if rec := do(h, "POST", "/api/v1/auth/password/verify", `{"password":"s3cret-password"}`, userID); rec.Code != http.StatusNoContent {
+		t.Fatalf("right password: %d %s", rec.Code, rec.Body)
+	}
+	rec := do(h, "DELETE", "/api/v1/auth/account", "", userID)
+	if rec.Code != http.StatusNoContent || !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=0") {
+		t.Fatalf("delete: %d, cookie %q", rec.Code, rec.Header().Get("Set-Cookie"))
+	}
+	if rec := post(h, "/api/v1/auth/login", `{"login":"alice","password":"s3cret-password"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("login after deletion: %d", rec.Code)
+	}
+	if rec := do(h, "DELETE", "/api/v1/auth/account", "", userID); rec.Code != http.StatusNoContent {
+		t.Fatalf("a retried delete must succeed: %d", rec.Code)
 	}
 }

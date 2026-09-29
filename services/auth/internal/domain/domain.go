@@ -80,6 +80,9 @@ type Repository interface {
 	FindByLogin(ctx context.Context, login string) (User, error)
 	// FindByID looks a user up by id. It returns ErrNotFound if there is none.
 	FindByID(ctx context.Context, id string) (User, error)
+	// Delete removes the user; their library and refresh tokens go with them
+	// (ON DELETE CASCADE). It returns ErrNotFound if there is none.
+	Delete(ctx context.Context, id string) error
 }
 
 // RefreshStore keeps refresh tokens, only as hashes, grouped in families:

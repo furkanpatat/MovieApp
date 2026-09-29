@@ -200,3 +200,32 @@ func (a *Auth) RevokeRefresh(ctx context.Context, token string) error {
 	}
 	return a.refresh.RevokeRefresh(ctx, hashRefresh(token))
 }
+
+// VerifyPassword checks the signed-in user's password (before an account
+// deletion). A wrong password and an unknown user are both
+// ErrInvalidCredentials.
+func (a *Auth) VerifyPassword(ctx context.Context, userID, password string) error {
+	u, err := a.repo.FindByID(ctx, userID)
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		_ = a.hasher.Compare(a.dummyHash, password) // the same time as a real check
+		return domain.ErrInvalidCredentials
+	case err != nil:
+		return fmt.Errorf("find user: %w", err)
+	}
+	if password == "" || len(password) > domain.MaxPasswordLen || a.hasher.Compare(u.PasswordHash, password) != nil {
+		a.log.Info("password check failed", "user_id", userID)
+		return domain.ErrInvalidCredentials
+	}
+	return nil
+}
+
+// DeleteAccount removes the user and, with them, their library and
+// sessions. An already deleted account is not an error (a retry).
+func (a *Auth) DeleteAccount(ctx context.Context, userID string) error {
+	if err := a.repo.Delete(ctx, userID); err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	a.log.Info("account deleted", "user_id", userID)
+	return nil
+}

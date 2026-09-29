@@ -19,7 +19,7 @@ func TestSeriesHaveTheirOwnEndpoints(t *testing.T) {
 	var got domain.OutboxMessage
 	mr := miniredis.RunT(t)
 	rm := readmodel.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), 20)
-	h := transport.NewHandler(service.NewCommand(captureOutbox{&got}), service.NewQuery(panicRepo{}, rm, 20, quiet), nil, quiet)
+	h := transport.NewHandler(service.NewCommand(captureOutbox{&got}), service.NewQuery(panicRepo{}, rm, 20, quiet), nil, nil, quiet)
 
 	if rec := do(h, "POST", "/api/v1/tv/1399/rate", `{"score":9}`); rec.Code != http.StatusAccepted {
 		t.Fatalf("rate a series -> %d %s", rec.Code, rec.Body)

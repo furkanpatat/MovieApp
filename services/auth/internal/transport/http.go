@@ -38,6 +38,10 @@ func NewHandler(svc *service.Auth, ready func(context.Context) error, log *slog.
 	mux.HandleFunc("POST /api/v1/auth/login", h.login)
 	mux.HandleFunc("POST /api/v1/auth/refresh", h.refresh)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.logout)
+	// Account deletion steps, called by the gateway for the signed-in user
+	// (X-User-Id, which only the gateway sets): check the password, delete.
+	mux.HandleFunc("POST /api/v1/auth/password/verify", h.verifyPassword)
+	mux.HandleFunc("DELETE /api/v1/auth/account", h.deleteAccount)
 	return mux
 }
 
@@ -53,6 +57,44 @@ type loginRequest struct {
 	// Refresh asks for a refresh token too (API clients such as the mobile
 	// app; the browser keeps its session in the cookie).
 	Refresh bool `json:"refresh"`
+}
+
+type passwordRequest struct {
+	Password string `json:"password"`
+}
+
+// userIDHeader carries the authenticated user, set by the gateway only.
+const userIDHeader = "X-User-Id"
+
+func (h *Handler) verifyPassword(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get(userIDHeader)
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	var req passwordRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if err := h.svc.VerifyPassword(r.Context(), userID, req.Password); err != nil {
+		h.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get(userIDHeader)
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	if err := h.svc.DeleteAccount(r.Context(), userID); err != nil {
+		h.fail(w, err)
+		return
+	}
+	h.setSessionCookie(w, "", time.Time{})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type refreshRequest struct {

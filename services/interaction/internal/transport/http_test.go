@@ -44,6 +44,7 @@ func (panicRepo) SaveComment(context.Context, domain.CommentAdded) error {
 func (panicRepo) GetStats(context.Context, domain.Title) (domain.RatingStats, error) {
 	return domain.RatingStats{}, errors.New("no db")
 }
+func (panicRepo) PurgeUser(context.Context, string) ([]domain.RatingStats, error) { panic("no db") }
 func (panicRepo) RecentComments(context.Context, domain.Title, int) ([]domain.Comment, error) {
 	return nil, errors.New("no db")
 }
@@ -51,7 +52,7 @@ func (panicRepo) RecentComments(context.Context, domain.Title, int) ([]domain.Co
 func server(t *testing.T, p *outbox) (http.Handler, *readmodel.Model) {
 	mr := miniredis.RunT(t)
 	rm := readmodel.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), 20)
-	return transport.NewHandler(service.NewCommand(p), service.NewQuery(panicRepo{}, rm, 20, quiet), nil, quiet), rm
+	return transport.NewHandler(service.NewCommand(p), service.NewQuery(panicRepo{}, rm, 20, quiet), nil, nil, quiet), rm
 }
 
 func do(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -130,7 +131,7 @@ func TestEventCarriesHeaderIdentity(t *testing.T) {
 	var got domain.OutboxMessage
 	mr := miniredis.RunT(t)
 	rm := readmodel.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), 20)
-	h := transport.NewHandler(service.NewCommand(captureOutbox{&got}), service.NewQuery(panicRepo{}, rm, 20, quiet), nil, quiet)
+	h := transport.NewHandler(service.NewCommand(captureOutbox{&got}), service.NewQuery(panicRepo{}, rm, 20, quiet), nil, nil, quiet)
 	if rec := doAs(h, "carol", "POST", "/api/v1/movies/7/rate", `{"score":4}`); rec.Code != http.StatusAccepted {
 		t.Fatal(rec.Code)
 	}

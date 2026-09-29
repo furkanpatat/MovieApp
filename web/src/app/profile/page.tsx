@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 import { LanguageToggle } from "@/components/layout/language-toggle";
 import { WatchedGrid } from "@/components/profile/watched-grid";
+import { DeleteAccountDialog } from "@/components/profile/delete-account-dialog";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -151,10 +152,13 @@ export default function ProfilePage() {
               }
             />
           </div>
-          <Button variant="destructive" className="mt-6 w-full sm:w-auto" onClick={() => logout.mutate()} disabled={logout.isPending}>
-            <LogOut className="size-4" />
-            {t("nav.signOut")}
-          </Button>
+          <div className="mt-6 flex flex-col sm:flex-row gap-4">
+            <Button variant="outline" className="w-full sm:w-auto text-zinc-300" onClick={() => logout.mutate()} disabled={logout.isPending}>
+              <LogOut className="size-4" />
+              {t("nav.signOut")}
+            </Button>
+            <DeleteAccountDialog />
+          </div>
         </section>
 
         {status === "error" && (
