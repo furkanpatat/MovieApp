@@ -50,12 +50,12 @@ export default function RootLayout() {
               without bound however the user hops between titles. */}
           <Stack.Screen
             name="title/[media]/[id]"
-            getId={({ params }) => `${params?.media}:${params?.id}`}
+            dangerouslySingular={(_, params) => `${params.media}:${params.id}`}
             options={{ headerTransparent: true, headerTitle: "", headerBackButtonDisplayMode: "minimal", headerTintColor: colors.text }}
           />
           <Stack.Screen
             name="party/[id]"
-            getId={({ params }) => `${params?.id}:${params?.code ?? "open"}`}
+            dangerouslySingular={(_, params) => `${params.id}:${params.code ?? "open"}`}
             options={{ headerTitle: t.party.header, headerBackButtonDisplayMode: "minimal", headerTintColor: colors.text, headerStyle: { backgroundColor: colors.bg } }}
           />
           <Stack.Screen name="login" options={{ presentation: "formSheet", headerShown: false, sheetGrabberVisible: true, sheetAllowedDetents: [0.75] }} />
