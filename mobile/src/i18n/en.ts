@@ -26,6 +26,10 @@ export const en = {
   },
   discover: {
     forYou: "For You",
+    genres: "Genres",
+    genre: (name: string) => `Genre: ${name}. Change genre`,
+    close: "Close",
+    empty: "Nothing in this genre right now.",
     failed: "Couldn't load the feed.",
     like: "Like",
     liked: "Liked",

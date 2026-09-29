@@ -4,8 +4,10 @@ import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, useWindo
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FeedPost } from "@/components/feed-post";
+import { GenrePicker } from "@/components/genre-picker";
 import { useT } from "@/i18n";
 import { useDiscoverFeed, useMyRatings } from "@/lib/queries";
+import { useFeed } from "@/store/feed";
 import { useMode } from "@/store/mode";
 import { colors } from "@/theme";
 import type { Movie } from "@/types/movie";
@@ -20,7 +22,9 @@ export default function Discover() {
   const { t } = useT();
   // A new random start and order on each visit, and on pull-to-refresh.
   const [seed, setSeed] = useState(newSeed);
-  const feed = useDiscoverFeed(mode, seed);
+  const genre = useFeed((s) => s.genres[mode] ?? 0);
+  const setGenre = useFeed((s) => s.setGenre);
+  const feed = useDiscoverFeed(mode, seed, genre);
   const ratings = useMyRatings();
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -59,13 +63,18 @@ export default function Discover() {
     if (first?.index != null) setActive(first.index);
   });
 
-  if (feed.isPending) return <ActivityIndicator style={styles.center} color={colors.gold} />;
-  if (feed.isError) return <Text style={[styles.center, styles.error]}>{t.discover.failed}</Text>;
-
   return (
     <View style={styles.screen}>
+      {/* Loading, failed or empty: the header (and its genre picker) stays. */}
+      {feed.isPending ? (
+        <ActivityIndicator style={styles.center} color={colors.gold} />
+      ) : feed.isError ? (
+        <Text style={[styles.center, styles.error]}>{t.discover.failed}</Text>
+      ) : items.length === 0 ? (
+        <Text style={[styles.center, styles.muted]}>{t.discover.empty}</Text>
+      ) : (
       <FlatList
-        key={`${mode}-${seed}`}
+        key={`${mode}-${genre}-${seed}`}
         data={items}
         keyExtractor={(m) => `${m.media_type ?? mode}:${m.id}`}
         renderItem={({ item, index }) => (
@@ -101,8 +110,9 @@ export default function Discover() {
           />
         }
       />
-      <View style={[styles.header, { top: insets.top + 8 }]} pointerEvents="none">
-        <Text style={styles.headerText}>{t.discover.forYou}</Text>
+      )}
+      <View style={[styles.header, { top: insets.top + 8 }]} pointerEvents="box-none">
+        <GenrePicker mode={mode} value={genre} onChange={(id) => (setGenre(mode, id), setActive(0))} />
         <Text style={styles.headerMode}>{mode === "tv" ? t.common.series : t.common.movies}</Text>
       </View>
     </View>
@@ -115,9 +125,9 @@ const newSeed = () => Math.floor(Math.random() * 1_000_000);
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  center: { flex: 1, marginTop: 200, alignSelf: "center" },
+  center: { marginTop: 280, alignSelf: "center", textAlign: "center", paddingHorizontal: 32 },
   error: { color: colors.danger },
   header: { position: "absolute", left: 0, right: 0, alignItems: "center" },
-  headerText: { color: colors.text, fontSize: 17, fontWeight: "800", textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 6 },
-  headerMode: { color: colors.gold, fontSize: 12, fontWeight: "700", marginTop: 2 },
+  muted: { color: colors.mute },
+  headerMode: { color: colors.gold, fontSize: 12, fontWeight: "700", marginTop: 6, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 6 },
 });

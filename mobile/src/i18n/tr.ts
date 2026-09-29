@@ -28,6 +28,10 @@ export const tr: Dictionary = {
   },
   discover: {
     forYou: "Senin İçin",
+    genres: "Türler",
+    genre: (name) => `Tür: ${name}. Türü değiştir`,
+    close: "Kapat",
+    empty: "Bu türde şu an bir şey yok.",
     failed: "Akış yüklenemedi.",
     like: "Beğen",
     liked: "Beğenildi",
