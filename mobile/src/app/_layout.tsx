@@ -44,12 +44,18 @@ export default function RootLayout() {
         <StatusBar style="light" />
         <Stack screenOptions={{ contentStyle: { backgroundColor: colors.bg } }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          {/* One screen per title / party: opening one that's already in the
+              stack goes back to it instead of stacking a copy, so the stack
+              (every screen stays mounted in a native stack) can't grow
+              without bound however the user hops between titles. */}
           <Stack.Screen
             name="title/[media]/[id]"
+            getId={({ params }) => `${params?.media}:${params?.id}`}
             options={{ headerTransparent: true, headerTitle: "", headerBackButtonDisplayMode: "minimal", headerTintColor: colors.text }}
           />
           <Stack.Screen
             name="party/[id]"
+            getId={({ params }) => `${params?.id}:${params?.code ?? "open"}`}
             options={{ headerTitle: t.party.header, headerBackButtonDisplayMode: "minimal", headerTintColor: colors.text, headerStyle: { backgroundColor: colors.bg } }}
           />
           <Stack.Screen name="login" options={{ presentation: "formSheet", headerShown: false, sheetGrabberVisible: true, sheetAllowedDetents: [0.75] }} />

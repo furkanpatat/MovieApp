@@ -59,6 +59,7 @@ export const tr: Dictionary = {
     movies: "Film ara…",
     series: "Dizi ara…",
     none: (q) => `“${q}” için sonuç yok.`,
+    trending: "Şu an popüler",
   },
   profile: {
     title: "Profil",

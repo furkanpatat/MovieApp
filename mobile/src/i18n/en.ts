@@ -57,6 +57,7 @@ export const en = {
     movies: "Search movies…",
     series: "Search series…",
     none: (q: string) => `No results for “${q}”.`,
+    trending: "Popular right now",
   },
   profile: {
     title: "Profile",

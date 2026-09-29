@@ -1,6 +1,6 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, useWindowDimensions, View, type ViewToken } from "react-native";
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, useWindowDimensions, View, type ViewToken } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FeedPost } from "@/components/feed-post";
@@ -13,12 +13,14 @@ import type { Movie } from "@/types/movie";
 /**
  * Discover: a vertical, full-screen trailer feed. One post per page; only
  * the one on screen plays, and only while this tab is focused. More pages
- * load as you near the end.
+ * load as you near the end; pull down at the top for a fresh feed.
  */
 export default function Discover() {
   const mode = useMode((s) => s.mode);
   const { t } = useT();
-  const feed = useDiscoverFeed(mode);
+  // A new random start and order on each visit, and on pull-to-refresh.
+  const [seed, setSeed] = useState(newSeed);
+  const feed = useDiscoverFeed(mode, seed);
   const ratings = useMyRatings();
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -63,7 +65,7 @@ export default function Discover() {
   return (
     <View style={styles.screen}>
       <FlatList
-        key={mode}
+        key={`${mode}-${seed}`}
         data={items}
         keyExtractor={(m) => `${m.media_type ?? mode}:${m.id}`}
         renderItem={({ item, index }) => (
@@ -89,6 +91,15 @@ export default function Discover() {
         maxToRenderPerBatch={2}
         onEndReached={() => feed.hasNextPage && !feed.isFetchingNextPage && void feed.fetchNextPage()}
         onEndReachedThreshold={2}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            onRefresh={() => (setSeed(newSeed()), setActive(0))}
+            tintColor={colors.gold}
+            colors={[colors.gold]}
+            progressViewOffset={insets.top}
+          />
+        }
       />
       <View style={[styles.header, { top: insets.top + 8 }]} pointerEvents="none">
         <Text style={styles.headerText}>{t.discover.forYou}</Text>
@@ -99,6 +110,8 @@ export default function Discover() {
 }
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 60 };
+
+const newSeed = () => Math.floor(Math.random() * 1_000_000);
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
