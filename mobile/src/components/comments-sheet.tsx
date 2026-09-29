@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { initialWindowMetrics } from "react-native-safe-area-context";
 
 import { useT } from "@/i18n";
@@ -48,7 +48,7 @@ export function CommentsSheet({ media, id, title, open, onClose }: { media: Medi
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={t.discover.close} />
       </Animated.View>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.anchor} pointerEvents="box-none">
-        <Animated.View entering={SlideInDown.springify().damping(22).stiffness(220)} style={[styles.sheet, { paddingBottom: bottomInset + 12 }]}>
+        <Animated.View entering={FadeIn.duration(160)} style={[styles.sheet, { paddingBottom: bottomInset + 12 }]}>
           <View style={styles.grabber} />
           <View style={styles.head}>
             <View style={{ flex: 1 }}>

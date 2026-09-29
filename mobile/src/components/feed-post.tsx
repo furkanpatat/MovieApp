@@ -30,6 +30,8 @@ export const FeedPost = memo(function FeedPost({
   active,
   near,
   liked,
+  bare = false,
+  onTouch,
 }: {
   movie: Movie;
   mode: MediaType;
@@ -37,6 +39,10 @@ export const FeedPost = memo(function FeedPost({
   active: boolean;
   near: boolean;
   liked: boolean;
+  /** Immersive: only the video (the overlays come back on a tap). */
+  bare?: boolean;
+  /** Any tap on the video (shows the controls again in immersive mode). */
+  onTouch?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   // A phone on its side: little height, so the rail becomes a row at the
@@ -93,7 +99,11 @@ export const FeedPost = memo(function FeedPost({
         </View>
       )}
 
-      <Pressable style={StyleSheet.absoluteFill} onPress={() => setPaused((p) => !p)} accessibilityLabel={paused ? t.discover.play : t.discover.pause}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={() => {
+          // Controls hidden: the first tap only brings them back.
+          if (!bare) setPaused((p) => !p);
+          onTouch?.();
+        }} accessibilityLabel={paused ? t.discover.play : t.discover.pause}>
         {paused && (
           <View style={styles.pauseBadge}>
             <Glyph ios="play.fill" android="play_arrow" size={40} />
@@ -101,6 +111,8 @@ export const FeedPost = memo(function FeedPost({
         )}
       </Pressable>
 
+      {!bare && (
+      <>
       <LinearGradient
         colors={["rgba(9,9,11,0.55)", "transparent", "transparent", "rgba(9,9,11,0.92)"]}
         locations={[0, 0.2, 0.55, 1]}
@@ -136,6 +148,8 @@ export const FeedPost = memo(function FeedPost({
           <Glyph ios="info.circle" android="info" />
         </RailButton>
       </View>
+      </>
+      )}
 
       <CommentsSheet media={media} id={movie.id} title={movie.title} open={commentsOpen} onClose={() => setCommentsOpen(false)} />
     </View>

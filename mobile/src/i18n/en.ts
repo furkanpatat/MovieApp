@@ -27,6 +27,8 @@ export const en = {
   discover: {
     forYou: "For You",
     genres: "Genres",
+    movieGenre: "Movie genre",
+    seriesGenre: "Series genre",
     genre: (name: string) => `Genre: ${name}. Change genre`,
     close: "Close",
     empty: "Nothing in this genre right now.",

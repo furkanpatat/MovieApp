@@ -29,6 +29,8 @@ export const tr: Dictionary = {
   discover: {
     forYou: "Senin İçin",
     genres: "Türler",
+    movieGenre: "Film türü",
+    seriesGenre: "Dizi türü",
     genre: (name) => `Tür: ${name}. Türü değiştir`,
     close: "Kapat",
     empty: "Bu türde şu an bir şey yok.",

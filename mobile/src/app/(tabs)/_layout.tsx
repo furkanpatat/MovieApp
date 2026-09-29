@@ -2,6 +2,7 @@ import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { Platform } from "react-native";
 
 import { useT } from "@/i18n";
+import { useChrome } from "@/store/chrome";
 import { colors } from "@/theme";
 
 /** The five tabs, on the platform's own tab bar (Liquid Glass on iOS).
@@ -9,8 +10,11 @@ import { colors } from "@/theme";
  *  run under the status bar), so the automatic ScrollView insets are off. */
 export default function TabLayout() {
   const { t } = useT();
+  // Discover on its side hides the bar until the screen is tapped.
+  const immersive = useChrome((s) => s.immersive);
   return (
     <NativeTabs
+      hidden={immersive}
       tintColor={colors.gold}
       iconColor={{ default: colors.mute, selected: colors.gold }}
       // Android's Material bar, in the app's colors (iOS keeps its glass):

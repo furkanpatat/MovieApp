@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet } from "react-native";
+import { Platform, StyleSheet, useWindowDimensions } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 /** YouTube player states (IFrame Player API). */
@@ -32,6 +32,11 @@ export function TrailerPlayer({
   onError?: () => void;
 }) {
   const ref = useRef<WebView>(null);
+  // Android's WebView keeps its old layout when the phone turns, so a turn
+  // makes a new player (the key), which resumes where the last one was.
+  const { width, height } = useWindowDimensions();
+  const orientation = width > height ? "landscape" : "portrait";
+  const position = useRef(0);
   // The first render's wishes are baked into the page; later ones are sent.
   const [initial] = useState({ playing, muted });
   const html = useMemo(() => page(videoKey, initial.muted), [videoKey, initial.muted]);
@@ -42,7 +47,8 @@ export function TrailerPlayer({
 
   const onMessage = (e: WebViewMessageEvent) => {
     try {
-      const msg = JSON.parse(e.nativeEvent.data) as { state?: number; error?: number };
+      const msg = JSON.parse(e.nativeEvent.data) as { state?: number; error?: number; t?: number };
+      if (typeof msg.t === "number") position.current = msg.t;
       if (msg.state === PLAYING) onPlaying?.();
       if (msg.error !== undefined) onError?.();
     } catch {
@@ -52,6 +58,7 @@ export function TrailerPlayer({
 
   return (
     <WebView
+      key={orientation}
       ref={ref}
       source={{ html, baseUrl: "https://kinora.duckdns.org" }}
       originWhitelist={["*"]}
@@ -72,7 +79,11 @@ export function TrailerPlayer({
       allowsFullscreenVideo={false}
       javaScriptEnabled
       onMessage={onMessage}
-      onLoadEnd={() => ref.current?.injectJavaScript(`window.setWant && window.setWant(${initial.playing}, ${initial.muted}); true;`)}
+      onLoadEnd={() =>
+        ref.current?.injectJavaScript(
+          `window.startAt = ${position.current}; window.resume && window.resume(); window.setWant && window.setWant(${playing}, ${muted}); true;`,
+        )
+      }
     />
   );
 }
@@ -96,6 +107,8 @@ function page(key: string, muted: boolean): string {
     want.muted ? player.mute() : player.unMute();
     want.playing ? player.playVideo() : player.pauseVideo();
   }
+  // After a turn: carry on from where the previous player was.
+  window.resume = function () { if (ready && window.startAt > 1) { player.seekTo(window.startAt, true); window.startAt = 0; } };
   window.setWant = function (playing, muted) { want.playing = playing; want.muted = muted; apply(); };
   function onYouTubeIframeAPIReady() {
     player = new YT.Player("p", {
@@ -103,7 +116,10 @@ function page(key: string, muted: boolean): string {
       playerVars: { autoplay: 1, mute: ${muted ? 1 : 0}, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3,
                     modestbranding: 1, rel: 0, playsinline: 1, loop: 1, playlist: ${id} },
       events: {
-        onReady: function () { ready = true; apply(); },
+        onReady: function () {
+          ready = true; window.resume(); apply();
+          setInterval(function () { send({ t: player.getCurrentTime() }); }, 1000);
+        },
         onStateChange: function (e) { send({ state: e.data }); },
         onError: function (e) { send({ error: e.data }); }
       }
